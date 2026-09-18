@@ -16,7 +16,7 @@ export enum GearType {
 
 export type Standard = 'metric' | 'english'
 
-interface NumberField {
+export interface NumberField {
   id: string
   label: string
   min: number
@@ -27,12 +27,12 @@ interface NumberField {
   measure: 'mm' | 'dp' | 'deg' | 'count' | 'coef'
   default: number
 }
-interface BoolField {
+export interface BoolField {
   id: string
   label: string
   default: boolean
 }
-interface ChoiceField {
+export interface ChoiceField {
   id: string
   label: string
   default: string
@@ -227,3 +227,10 @@ export const gearTypeMap: Record<GearType, GearTypeMeta> = Object.fromEntries(
 
 /** Schema 中出现但不在 GearParams 内的选择字段，存到这个集合里（松类型） */
 export const extraChoiceIds = new Set(['helicalSystem', 'rackType', 'wormType', 'fastCompute'])
+
+/** 某齿轮类型全部 schema 字段的默认值（扁平 id → value，含 pitch/helicalSystem 等 extra 字段） */
+export function defaultValuesForType(type: GearType): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {}
+  for (const f of gearTypeMap[type].fields) out[f.id] = f.default
+  return out
+}

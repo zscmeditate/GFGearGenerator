@@ -37,6 +37,16 @@ export class MeshData {
     return this.positions.length / 3
   }
 
+  /** 原地变换所有顶点（用于坐标系调整） */
+  transform(fn: (x: number, y: number, z: number) => [number, number, number]) {
+    for (let i = 0; i < this.positions.length; i += 3) {
+      const [x, y, z] = fn(this.positions[i], this.positions[i + 1], this.positions[i + 2])
+      this.positions[i] = x
+      this.positions[i + 1] = y
+      this.positions[i + 2] = z
+    }
+  }
+
   /** 合并另一个网格，可施加顶点变换（返回新坐标）。 */
   merge(other: MeshData, transform?: (x: number, y: number, z: number) => [number, number, number]) {
     const vBase = this.positions.length / 3

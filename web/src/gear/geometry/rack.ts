@@ -56,8 +56,8 @@ export function buildRack(o: RackOptions): MeshData {
   const base = rackOutline(o, p, apt)
   let layers = 2
   if (o.helical && beta > 0) {
-    const maxSkewStep = o.m * (o.quality === 'preview' ? 0.5 : 0.2)
-    layers = clamp(Math.ceil((o.thickness * Math.tan(beta)) / maxSkewStep) + 1, 2, o.quality === 'preview' ? 40 : 140)
+    const maxSkewStep = o.m * (o.quality === 'preview' ? 0.5 : 0.08)
+    layers = clamp(Math.ceil((o.thickness * Math.tan(beta)) / maxSkewStep) + 1, 2, o.quality === 'preview' ? 40 : 300)
   }
   const sections: Section[] = []
   for (let j = 0; j < layers; j++) {

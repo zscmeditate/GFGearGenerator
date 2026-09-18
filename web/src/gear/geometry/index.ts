@@ -16,54 +16,58 @@ export function buildGear(type: GearType, p: GearParams, extra: ExtraValues, qua
   const m = p.standard === 'english' && pitch > 0 ? diametralPitchToModule(pitch) : p.module
   const normalSystem = extra.helicalSystem === 'normal'
 
+  // 圆柱齿轮统一"躺平"：绕 X 轴 -90°，让轴线 Z→Y（竖直），
+  // 相机从 +Z 看时呈现齿轮侧面（齿根/齿顶可见），而非正对端面。
+  const layFlat = (mesh: MeshData) => { mesh.transform((x, y, z) => [x, z, -y]); return mesh }
+
   switch (type) {
     case GearType.Spur:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight, quality
-      })
+      }))
 
     case GearType.ShiftedSpur:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight, X: p.X, quality
-      })
+      }))
 
     case GearType.Helical:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         helixAngleDeg: p.helixAngle, cw: p.clockwise, doubleHelical: p.doubleHelical,
         normalSystem, quality
-      })
+      }))
 
     case GearType.ShiftedHelical:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         helixAngleDeg: p.helixAngle, cw: p.clockwise, doubleHelical: p.doubleHelical,
         normalSystem, X: p.X, quality
-      })
+      }))
 
     case GearType.Internal:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         internal: true, rimThickness: p.radialThickness, quality
-      })
+      }))
     case GearType.InternalNS:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         internal: true, nonStandard: true, rimThickness: p.radialThickness, quality
-      })
+      }))
 
     case GearType.InternalHelical:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         helixAngleDeg: p.helixAngle, cw: p.clockwise, doubleHelical: p.doubleHelical,
         normalSystem, internal: true, rimThickness: p.radialThickness, quality
-      })
+      }))
     case GearType.InternalHelicalNS:
-      return buildCylindricalGear({
+      return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         helixAngleDeg: p.helixAngle, cw: p.clockwise, doubleHelical: p.doubleHelical,
         normalSystem, internal: true, nonStandard: true, rimThickness: p.radialThickness, quality
-      })
+      }))
 
     case GearType.Rack:
       return buildRack({

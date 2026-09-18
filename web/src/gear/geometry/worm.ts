@@ -42,7 +42,7 @@ export function buildWormDrive(o: WormOptions): MeshData {
     height: o.wheelHeight,
     helixAngleDeg: radToDeg(wormLeadAngle),
     cw: o.leftThreaded ?? false,
-    minLayers: o.hobbed ? (o.quality === 'preview' ? 14 : 30) : undefined,
+    minLayers: o.hobbed ? (o.quality === 'preview' ? 14 : 80) : undefined,
     quality: o.quality
   })
 
@@ -67,7 +67,7 @@ export function buildWormDrive(o: WormOptions): MeshData {
   mesh.merge(wheel)
 
   // —— 蜗杆（局部沿 +Z 构建，再旋转到 +X，抬到中心距高度）——
-  const segCore = o.quality === 'preview' ? 32 : 80
+  const segCore = o.quality === 'preview' ? 32 : 160
   const core = cylinderZ(rRoot, rRoot, o.wormLength, segCore, -o.wormLength / 2, 'worm-core')
   const thread = helicalThread({
     rRoot,
@@ -76,7 +76,7 @@ export function buildWormDrive(o: WormOptions): MeshData {
     length: o.wormLength,
     halfTipWidth: halfTip,
     halfRootWidth: halfRoot,
-    segPerTurn: o.quality === 'preview' ? 10 : 24,
+    segPerTurn: o.quality === 'preview' ? 10 : 48,
     leftHand: o.leftThreaded,
     partName: 'worm-thread'
   })

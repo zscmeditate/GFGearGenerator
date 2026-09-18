@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { gearTypes, type GearTypeMeta } from '../gear/schema'
+import { computed, h } from 'vue'
+import { gearTypes } from '../gear/schema'
 import { useGearStore } from '../stores/gear'
+import NeuMenu, { type MenuItem } from './neu/NeuMenu.vue'
 
 const store = useGearStore()
 
@@ -14,29 +15,39 @@ const groups = computed(() => {
   return [0, 1, 2].map((g) => ({ label: labels[g], items: gearTypes.filter((t) => t.group === g) }))
 })
 
-function pick(t: GearTypeMeta) {
-  store.selectType(t.type)
+/** NeuMenu 的 icon 接收组件，用函数式组件包装原有 PNG 图标 */
+function gearIcon(icon: string) {
+  return () =>
+    h('img', {
+      src: `/icons/${icon}.png`,
+      alt: '',
+      class: 'w-6 h-6 object-contain'
+    })
+}
+
+/** 三组齿轮之间插入 Neumorphism 分隔符 */
+const menuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = []
+  groups.value.forEach((grp, gi) => {
+    if (gi > 0) items.push({ key: `divider-${gi}`, label: '', type: 'divider' })
+    grp.items.forEach((t) => {
+      items.push({ key: t.type, label: t.name, icon: gearIcon(t.icon) })
+    })
+  })
+  return items
+})
+
+function onSelect(item: MenuItem) {
+  const meta = gearTypes.find((t) => t.type === item.key)
+  if (meta) store.selectType(meta.type)
 }
 </script>
 
 <template>
-  <div class="gear-selector-bar">
-    <div v-for="grp in groups" :key="grp.label" class="gear-group">
-      <span class="group-tag">{{ grp.label }}</span>
-      <div class="gear-cards">
-        <button
-          v-for="t in grp.items"
-          :key="t.type"
-          class="gear-card"
-          :class="{ active: store.type === t.type }"
-          :title="t.en"
-          @click="pick(t)"
-        >
-          <span v-if="t.approx" class="approx-badge">近似</span>
-          <img :src="`/icons/${t.icon}.png`" :alt="t.en" />
-          <span class="g-name">{{ t.name }}</span>
-        </button>
-      </div>
-    </div>
-  </div>
+  <NeuMenu
+    :items="menuItems"
+    :model-value="store.type"
+    mode="horizontal"
+    @select="onSelect"
+  />
 </template>

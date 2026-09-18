@@ -36,8 +36,8 @@ export interface CylOptions {
 
 function layerCount(totalTwist: number, quality: 'preview' | 'high', minLayers = 2) {
   if (Math.abs(totalTwist) < 1e-6) return Math.max(2, minLayers)
-  const tol = degToRad(quality === 'preview' ? 10 : 3)
-  const max = quality === 'preview' ? 40 : 140
+  const tol = degToRad(quality === 'preview' ? 10 : 1.5)
+  const max = quality === 'preview' ? 40 : 300
   return clamp(Math.max(Math.ceil(Math.abs(totalTwist) / tol) + 1, minLayers), 2, max)
 }
 

@@ -1,23 +1,14 @@
+/* ===================================================================
+ * GFGearGenerator —— Neumorphism-UI 风格布局
+ * 控件视觉（阴影/圆角/颜色）全部消费 neu.css 中的组件库 Token：
+ * --bg-color / --text-color / --shadow-light / --shadow-dark / --accent
+ * =================================================================== */
+
 :root {
-  --bg-0: #050507;
-  --bg-1: #0b0b0e;
-  --bg-2: #131316;
-  --bg-3: #1c1c20;
-  --line: #2a2a30;
-  --line-soft: #18181c;
-  --text-0: #ebedf0;
-  --text-1: #9ea0a8;
-  --text-2: #5c5e66;
-  --neon: #35e0d0;
-  --neon-2: #4da3ff;
-  --neon-3: #b06bff;
-  --danger: #ff5d7a;
-  --warn: #ffb347;
-  --radius: 10px;
-  --radius-sm: 7px;
-  --shadow-glow: 0 0 18px rgba(53, 224, 208, 0.22);
-  --font: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
-  --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --font: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --danger: #e5484d;
+  --success: #22c55e;
+  --warn: #b5791a;
 }
 
 * {
@@ -31,12 +22,10 @@ html, body, #app {
 }
 
 body {
+  padding: 0;
   font-family: var(--font);
-  color: var(--text-0);
-  background:
-    radial-gradient(1200px 800px at 70% -10%, rgba(77, 163, 255, 0.06), transparent 60%),
-    radial-gradient(900px 700px at 10% 110%, rgba(176, 107, 255, 0.05), transparent 60%),
-    var(--bg-0);
+  color: var(--text-color);
+  background: var(--bg-color);
   font-size: 13px;
   user-select: none;
 }
@@ -49,476 +38,392 @@ button {
 /* ---------- 布局骨架 ---------- */
 .app-shell {
   display: grid;
-  grid-template-columns: 280px 1fr 220px;
-  grid-template-rows: 92px 1fr;
+  grid-template-columns: 300px 1fr 240px;
+  grid-template-rows: 96px 1fr;
   grid-template-areas: 'top top top' 'left main right';
   height: 100%;
+  padding: 12px;
+  border-radius: var(--neu-radius-sm);
+  box-shadow:
+    inset var(--neu-d3) var(--neu-d3) var(--neu-b3) var(--shadow-dark),
+    inset var(--neu-d3-n) var(--neu-d3-n) var(--neu-b3) var(--shadow-light);
 }
 
+/* ---------- 顶部水平菜单栏 ---------- */
 .topbar {
   grid-area: top;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid var(--line-soft);
-  background: rgba(11, 11, 14, 0.85);
-  backdrop-filter: blur(10px);
+  padding: 0 32px;
   z-index: 5;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.gear-selector-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 0 16px;
-  flex: 1;
   min-width: 0;
 }
 
-.gear-group {
+/* 右上角 AI 生成按钮 */
+.ai-btn-wrap {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* 菜单超出宽度时横向滚动（隐藏滚动条），否则居中 */
+.topmenu-scroll {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  justify-content: center;
 }
 
-.group-tag {
-  color: var(--text-2);
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  padding: 2px 0;
+.topmenu-scroll::-webkit-scrollbar {
+  display: none;
 }
 
-.gear-cards {
+/* ---------- 两侧栏 ---------- */
+.sidebar-left,
+.sidebar-right {
+  padding: 14px 24px 24px;
   display: flex;
-  gap: 7px;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-width: 0;
 }
 
 .sidebar-left {
   grid-area: left;
-  border-right: 1px solid var(--line-soft);
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  background: rgba(8, 8, 10, 0.5);
 }
 
 .sidebar-right {
   grid-area: right;
-  border-left: 1px solid var(--line-soft);
-  overflow-y: auto;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  background: rgba(8, 8, 10, 0.5);
 }
 
+/* ---------- 中央视口（凹陷面板） ---------- */
 .viewer-area {
   grid-area: main;
   position: relative;
   min-width: 0;
   min-height: 0;
+  padding: 10px 24px 24px;
 }
 
-/* ---------- 齿轮类型卡 ---------- */
-.gear-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 6px 8px 5px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: linear-gradient(160deg, var(--bg-2), var(--bg-1));
-  color: var(--text-1);
-  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
-  min-width: 56px;
-}
-
-.gear-card img {
-  width: 26px;
-  height: 26px;
-  filter: grayscale(0.6) brightness(1.3);
-  transition: filter 0.15s;
-}
-
-.gear-card .g-name {
-  font-size: 10px;
-  line-height: 1.2;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.gear-card:hover {
-  border-color: var(--neon-2);
-  transform: translateY(-1px);
-}
-
-.gear-card.active {
-  border-color: var(--neon);
-  color: var(--text-0);
-  box-shadow: var(--shadow-glow);
-  background: linear-gradient(160deg, rgba(53, 224, 208, 0.12), rgba(77, 163, 255, 0.06));
-}
-
-.gear-card.active img {
-  filter: none;
-}
-
-.approx-badge {
+.gear-viewer {
   position: absolute;
-  top: 3px;
-  right: 3px;
-  font-size: 7px;
-  padding: 1px 4px;
-  border-radius: 20px;
-  background: rgba(255, 179, 71, 0.18);
-  color: var(--warn);
-  border: 1px solid rgba(255, 179, 71, 0.35);
+  inset: 14px;
+  border-radius: var(--neu-radius-lg);
+  overflow: hidden;
 }
 
-/* ---------- 参数面板 ---------- */
-.panel {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(19, 19, 22, 0.6);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* 凹陷视口边缘：极淡内嵌阴影浮于 canvas 之上，不拦截鼠标
+   白色高光需压得很轻，否则顶部会聚成白雾边与 3D 场景脱节 */
+.viewer-area::after {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: var(--neu-radius-lg);
+  pointer-events: none;
+  z-index: 4;
+  box-shadow:
+    inset var(--neu-d3) var(--neu-d3) var(--neu-b3) var(--shadow-dark),
+    inset var(--neu-d3-n) var(--neu-d3-n) var(--neu-b3) var(--shadow-light);
 }
 
-.panel h3 {
-  margin: 0;
-  font-size: 12px;
-  letter-spacing: 1px;
-  color: var(--neon);
+/* ---------- 面板文字 ---------- */
+.panel-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+}
+
+.title-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title-en {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 参数面板标题栏的「恢复默认」圆形按钮 */
+.panel-title button:hover {
+  color: var(--accent);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .field > label {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: var(--text-1);
+  color: var(--text-muted);
+  padding: 0 2px;
 }
 
 .field .unit {
-  color: var(--text-2);
+  color: var(--text-muted);
   font-size: 10px;
-}
-
-input[type='number'],
-select {
-  width: 100%;
-  padding: 7px 9px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg-1);
-  color: var(--text-0);
-  font-family: var(--mono);
-  font-size: 12px;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-input[type='number']:focus,
-select:focus {
-  border-color: var(--neon);
-  box-shadow: 0 0 0 2px rgba(53, 224, 208, 0.15);
-}
-
-input[type='range'] {
-  width: 100%;
-  accent-color: var(--neon);
-}
-
-.range-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.range-row input[type='number'] {
-  width: 84px;
-  flex-shrink: 0;
-}
-
-/* 开关 */
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-1);
-}
-
-.switch {
-  position: relative;
-  width: 38px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.switch .track {
-  position: absolute;
-  inset: 0;
-  border-radius: 20px;
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  transition: background 0.15s;
-}
-
-.switch .track::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-1);
-  transition: transform 0.18s cubic-bezier(0.3, 1.2, 0.5, 1), background 0.15s;
-}
-
-.switch input:checked + .track {
-  background: rgba(53, 224, 208, 0.3);
-  border-color: var(--neon);
-}
-
-.switch input:checked + .track::after {
-  transform: translateX(18px);
-  background: var(--neon);
-  box-shadow: 0 0 8px var(--neon);
-}
-
-/* choice 分段控件 */
-.choice-seg {
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  background: var(--bg-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
-
-.choice-seg button {
-  flex: 1;
-  padding: 6px 4px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-1);
-  font-size: 11px;
-  transition: background 0.15s, color 0.15s;
-}
-
-.choice-seg button.active {
-  background: linear-gradient(135deg, rgba(53, 224, 208, 0.25), rgba(77, 163, 255, 0.2));
-  color: var(--text-0);
-  box-shadow: inset 0 0 0 1px rgba(53, 224, 208, 0.4);
 }
 
 .hint {
   font-size: 10px;
-  color: var(--text-2);
+  color: var(--text-muted);
   line-height: 1.4;
+  padding: 0 2px;
+  text-align: center;
+}
+
+/* 滑块 + 数字输入并排 */
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+/* NeuInput 在侧栏内收敛为紧凑尺寸（特异性高于组件库工具类） */
+.range-row .num-input {
+  width: 92px;
+  flex-shrink: 0;
+}
+
+.num-input input {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  text-align: center;
+  font-family: var(--font);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.num-input input::-webkit-outer-spin-button,
+.num-input input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* 开关行 */
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-height: 40px;
+  margin-bottom: 10px;
 }
 
 /* ---------- 右侧控制面板 ---------- */
-.control-panel {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(19, 19, 22, 0.6);
-  padding: 12px;
+.control-panel,
+.param-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.control-panel h3 {
-  margin: 0;
-  font-size: 12px;
-  letter-spacing: 1px;
-  color: var(--neon);
+  gap: 10px;
 }
 
 .ctrl-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
+}
+
+/* 同一区块内连续纵向按钮之间额外加间距（如「视图」「导出」） */
+.ctrl-section > button + button {
+  margin-top: 10px;
+}
+
+/* 「视图」区块内，自动旋转按钮与上方透视/正交按钮行之间加大留白 */
+.ctrl-section > .btn-row + button {
+  margin-top: 14px;
 }
 
 .ctrl-label {
-  font-size: 10px;
-  color: var(--text-2);
-  letter-spacing: 1px;
+  font-size: 13px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
   text-transform: uppercase;
+  padding: 0 2px;
+}
+
+/* NeuButton 在区块内纵向全宽、分段时均分 */
+.ctrl-section > button {
+  width: 100%;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-row > button,
+.btn-row > .neu-button {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-row > .btn-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.btn-row > .btn-col > button {
+  width: 100%;
 }
 
 .stat-chip {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-1);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
   text-align: center;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 9px 8px !important;
+  border-radius: var(--neu-radius-sm);
 }
 
 .stat-chip b {
-  color: var(--neon);
-  font-weight: 600;
-}
-
-.btn {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  color: var(--text-1);
+  color: var(--accent);
+  font-weight: 700;
   font-size: 12px;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
 }
 
-.btn:hover {
-  border-color: var(--neon-2);
-  color: var(--text-0);
-}
-
-.btn.primary {
-  background: linear-gradient(135deg, rgba(53, 224, 208, 0.22), rgba(77, 163, 255, 0.18));
-  border-color: var(--neon);
-  color: var(--text-0);
-  font-weight: 600;
-}
-
-.btn.primary:hover {
-  box-shadow: var(--shadow-glow);
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: wait;
-}
-
-.btn.active {
-  border-color: var(--neon);
-  color: var(--neon);
-}
-
-.standard-toggle {
-  display: flex;
-  gap: 4px;
+/* ---------- NeuButton 选中态阴影柔化 ----------
+ * 组件库默认 shadow-neu-pressed（6px 偏移）在大圆角对角处，
+ * 白色/暗色 inset 阴影会交汇裂成两个三角色块。
+ * 仅覆盖 button 元素：不影响 NeuInput / NeuSwitch / NeuSlider / NeuCard 的凹陷。 */
+.app-shell button.shadow-neu-pressed {
+  box-shadow:
+    inset 2px 2px 7px var(--shadow-dark),
+    inset -2px -2px 7px var(--shadow-light);
 }
 
 /* ---------- 浮层 / 状态 ---------- */
 .overlay-tip {
   position: absolute;
-  left: 14px;
-  bottom: 14px;
+  left: 36px;
+  bottom: 26px;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   font-size: 10px;
-  color: var(--text-2);
+  color: var(--text-muted);
   pointer-events: none;
+  z-index: 6;
 }
 
 .overlay-tip span {
-  background: rgba(11, 11, 14, 0.72);
-  border: 1px solid var(--line-soft);
-  padding: 4px 9px;
+  background: var(--bg-color);
+  padding: 5px 11px;
   border-radius: 20px;
-  backdrop-filter: blur(6px);
+  box-shadow:
+    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
+    var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
 }
 
 .approx-note {
   position: absolute;
-  left: 14px;
-  top: 14px;
+  left: 26px;
+  top: 26px;
   font-size: 11px;
   color: var(--warn);
-  background: rgba(255, 179, 71, 0.1);
-  border: 1px solid rgba(255, 179, 71, 0.3);
-  padding: 6px 12px;
+  background: var(--bg-color);
+  padding: 7px 13px;
   border-radius: 20px;
-  backdrop-filter: blur(6px);
+  z-index: 6;
+  box-shadow:
+    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
+    var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
 }
 
-.toast {
+.topview-btn {
   position: absolute;
-  top: 14px;
-  right: 14px;
-  max-width: 360px;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  z-index: 20;
-}
-
-.toast.error {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.toast.info {
-  border-color: var(--neon-2);
-}
-
-.busy-mask {
-  position: absolute;
-  inset: 0;
+  right: 26px;
+  top: 26px;
+  z-index: 6;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-color);
+  color: var(--text-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(5, 5, 7, 0.6);
-  backdrop-filter: blur(3px);
-  z-index: 15;
+  cursor: pointer;
+  box-shadow:
+    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
+    var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
+  transition: color 0.2s;
+}
+
+.topview-btn:hover {
+  color: var(--accent);
+}
+
+/* 悬浮对话框（无遮罩，3D 场景保持可交互） */
+.busy-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 14px;
+  padding: 24px 36px;
+  border-radius: var(--neu-radius-md);
+  background: var(--bg-color);
+  /* 凹下区域：内嵌阴影包裹 loading 内容 */
+  box-shadow:
+    inset var(--neu-d2) var(--neu-d2) var(--neu-b2) var(--shadow-dark),
+    inset var(--neu-d2-n) var(--neu-d2-n) var(--neu-b2) var(--shadow-light);
+  pointer-events: auto;
+  z-index: 10;
+}
+
+.busy-text {
+  color: var(--text-color);
+  font-size: 13px;
 }
 
 .spinner {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  border: 3px solid var(--bg-3);
-  border-top-color: var(--neon);
-  border-right-color: var(--neon-2);
+  border: 4px solid var(--bg-color);
+  box-shadow:
+    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
+    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light),
+    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark);
+  border-top-color: var(--accent);
   animation: spin 0.9s linear infinite;
 }
 
@@ -528,22 +433,26 @@ input[type='range'] {
 
 .progress-track {
   width: 240px;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--bg-3);
+  height: 10px;
+  border-radius: 6px;
+  background: var(--bg-color);
   overflow: hidden;
+  box-shadow:
+    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
+    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
 }
 
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--neon), var(--neon-2));
+  background: var(--accent);
+  border-radius: 6px;
   transition: width 0.2s;
 }
 
-/* 滚动条 */
+/* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -551,10 +460,10 @@ input[type='range'] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-3);
-  border-radius: 5px;
+  background: var(--shadow-dark);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2a2a30;
+  background: var(--accent);
 }
