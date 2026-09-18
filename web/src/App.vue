@@ -64,7 +64,7 @@ async function doExport(fmt: ExportFormat) {
         <GearSidebar />
       </div>
       <div class="ai-btn-wrap">
-        <NeuButton variant="icon" title="AI 齿轮生成" @click="aiOpen = true">
+        <NeuButton variant="icon" size="lg" shape="circle" title="AI 齿轮生成" @click="aiOpen = true">
           <Sparkles class="w-6 h-6" />
         </NeuButton>
       </div>

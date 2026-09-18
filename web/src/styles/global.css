@@ -61,12 +61,29 @@ button {
   min-width: 0;
 }
 
-/* 右上角 AI 生成按钮 */
+/* 右上角 AI 生成按钮（圆形 + 主题色底色） */
 .ai-btn-wrap {
   position: absolute;
   right: 32px;
   top: 50%;
   transform: translateY(-50%);
+}
+
+.ai-btn-wrap button {
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 9999px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.ai-btn-wrap button:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.ai-btn-wrap button:active:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 /* 菜单超出宽度时横向滚动（隐藏滚动条），否则居中 */
