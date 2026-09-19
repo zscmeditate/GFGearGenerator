@@ -192,20 +192,20 @@ export interface SegmentBudget {
 
 /**
  * 根据齿数自适应分段，控制总面片规模。
- * 低精度（preview）的各分段数为高精度（high）的 1/3。
+ * 低精度（preview）沿用原高精度分段数；高精度（high）再提升 5 倍。
  */
 export function budgetFor(z: number, quality: 'preview' | 'high'): SegmentBudget {
   const f = Math.max(4, Math.min(16, Math.floor(9000 / Math.max(z, 1) / 4)))
-  const high: SegmentBudget = {
+  const base: SegmentBudget = {
     flank: f,
     tipArc: Math.max(3, Math.floor(f / 1.4)),
     rootArc: Math.max(4, Math.floor(720 / z / 3) + 2)
   }
-  if (quality === 'high') return high
+  if (quality === 'preview') return base
   return {
-    flank: Math.max(2, Math.round(high.flank / 3)),
-    tipArc: Math.max(2, Math.round(high.tipArc / 3)),
-    rootArc: Math.max(2, Math.round(high.rootArc / 3))
+    flank: base.flank * 5,
+    tipArc: base.tipArc * 5,
+    rootArc: base.rootArc * 5
   }
 }
 
@@ -269,270 +269,63 @@ export function internalToothRing(
   cx = 0,
   cy = 0
 ): Vec2[] {
-  /*
-   * 严格对应 GFGearGenerator.py 的标准内齿轮：
-   *
-   * parameters()
-   *   -> x[], y[], x2[], y2[]
-   *
-   * skeng1()
-   *   -> 外圆 rcor = ra + espesorc
-   *   -> 内圆 rf
-   *   -> 两条渐开线
-   *   -> da/ra 齿顶圆弧
-   *   -> 原点到渐开线起点的两条直线
-   *
-   * coronastd()
-   *   -> 以这个 diente 作为 CUT
-   *   -> 按 z 个齿做 CircularPattern
-   *
-   * 这里返回的是 CUT 完成以后留下来的“内孔边界”。
-   *
-   * 因此：
-   *   - 内齿齿顶（最靠近中心）= rf
-   *   - 齿槽最外侧 = ra
-   *   - 齿侧使用 Python parameters() 生成的外齿渐开线
-   *
-   * 这也是为什么不能使用之前的：
-   *   rTip = rp - m
-   *   rGap = rp + 1.25*m
-   *  那是把普通外齿轮的尺寸关系错误地套到了内齿孔上。
-   */
-
-  const { z, rb, ra, rf } = spec
+  const { z, rb, rp, m, apt } = spec
   const pitch = TAU / z
 
-  // Python parameters() 的标准 X=0 情况：
-  // alpha = sqrt(dp^2-db^2)/db - apt
-  // beta = pi/(2*z)
-  // angrot2 = 2*pi-alpha-beta
-  const dp = spec.dp
-  const db = spec.db
-  const alpha =
-    Math.sqrt(Math.max(0, dp * dp - db * db)) / db -
-    spec.apt
-  const beta = Math.PI / (2 * z)
-  const angrot2 = TAU - alpha - beta
+  // 内齿轮径向尺寸：齿顶朝向圆心、齿根朝外（与外齿轮 da/df 关系相反）
+  const rTip = rp - m         // 内齿顶（最靠近中心）
+  const rRoot = rp + 1.25 * m // 内齿根 / 齿间（最远离中心）
 
-  // Python parameters()：
-  // u/v = linspace(0, sqrt((da/db)^2-1), aok)
-  const da = 2 * ra
-  const uMax = Math.sqrt(
-    Math.max(0, (da / db) * (da / db) - 1)
-  )
+  // 齿顶落入基圆以内时，齿顶段用径向线补齐（相当于外齿轮的根切）
+  const radialAtTip = rTip < rb
+  const rFlankStart = Math.max(rTip, rb)
 
-  const us = linspace(
-    0,
-    uMax,
-    b.flank + 1
-  )
+  // 渐开线滚动参数：从齿顶侧（内）到齿根侧（外）
+  const u0 = uAtRadius(rb, rFlankStart)
+  const u1 = uAtRadius(rb, rRoot)
+  const us = linspace(u0, u1, b.flank + 1)
 
-  /*
-   * Python 原式：
-   *
-   * x  = rb*(cos(u+angrot2) + u*sin(u+angrot2))
-   * y  = rb*(sin(u+angrot2) - u*cos(u+angrot2))
-   *
-   * x2 = rb*(cos(v+angrot2) + v*sin(v+angrot2))
-   * y2 = -rb*(sin(v+angrot2) - v*cos(v+angrot2))
-   *
-   * x2/y2 与 x/y 关于 X 轴镜像。
-   *
-   * 注意：这里直接使用这些坐标，不通过“内齿渐开线公式”
-   * 重新推导。
-   */
-  const left: Vec2[] = []
-  const right: Vec2[] = []
+  // 内齿齿厚半角随半径增大而增宽（齿根宽、齿顶窄）
+  const half = (u: number) =>
+    internalHalfThickness(spec, rb * Math.sqrt(1 + u * u))
+  // 基圆处齿厚半角：径向线的角度基准
+  const halfBase = Math.PI / (2 * z) - inv(apt)
+  const halfTip = radialAtTip ? halfBase : half(u0)
+  const halfRoot = half(u1)
 
-  for (const u of us) {
-    const t = u + angrot2
-
-    const x =
-      rb *
-      (Math.cos(t) + u * Math.sin(t))
-
-    const y =
-      rb *
-      (Math.sin(t) - u * Math.cos(t))
-
-    left.push([x, y])
-    right.push([x, -y])
-  }
-
-  /*
-   * Python 中：
-   *
-   * Ttda = Tt(da)
-   *
-   * Tt(d) = 2 * (pi/(2z) + inv(apt) - inv(at))
-   * at = acos(rb/(d/2))
-   *
-   * 由于 Python 的 arc 是：
-   *   addByCenterStartSweep(orig, pointo, Ttda)
-   * 因此左侧齿顶点的角度为 -Ttda/2，
-   * 右侧为 +Ttda/2。
-   *
-   * 直接用 Python 坐标的实际角度确定圆弧端点，
-   * 同时用 Ttda 控制中间分段。
-   */
-  const invFn = (x: number) => Math.tan(x) - x
-
-  const at =
-    Math.acos(
-      clamp(rb / ra, -1, 1)
-    )
-
-  const Ttda =
-    2 *
-    (
-      Math.PI / (2 * z) +
-      invFn(spec.apt) -
-      invFn(at)
-    )
-
-  /*
-   * Python 的 profile 在 base circle 处并不一定正好等于
-   * ±pi/(2z)+inv(apt)，所以边界以实际生成的 x/y 为准。
-   */
-  const leftBaseAngle =
-    Math.atan2(left[0][1], left[0][0])
-
-  const rightBaseAngle =
-    Math.atan2(right[0][1], right[0][0])
-
-  const leftTipAngle =
-    Math.atan2(
-      left[left.length - 1][1],
-      left[left.length - 1][0]
-    )
-
-  const rightTipAngle =
-    Math.atan2(
-      right[right.length - 1][1],
-      right[right.length - 1][0]
-    )
+  const P = (r: number, a: number): Vec2 => [
+    cx + r * Math.cos(a),
+    cy + r * Math.sin(a)
+  ]
 
   const ring: Vec2[] = []
 
   for (let k = 0; k < z; k++) {
-    // Python coronastd() 对 diente 直接做 CircularPattern，
-    // 所以第 k 个 CUT 齿槽的中心线就是 k * pitch。
-    //
-    // 注意：这里返回的是 CUT 之后的“内孔边界”，
-    // 不能因为实体齿位于两个 CUT 槽之间，就额外旋转半个齿距。
     const c = k * pitch
 
-    /*
-     * CUT profile 从原点出发。
-     *
-     * 因为标准内齿的 rf < rb 时，Cut profile 与 rf 圆相交于
-     * 两条“原点 -> 渐开线起点”的直线上，所以最终孔边界为：
-     *
-     * rf 圆
-     *   -> 径向线
-     *   -> 左渐开线
-     *   -> ra 圆弧
-     *   -> 右渐开线
-     *   -> 径向线
-     *   -> rf 圆
-     */
+    // 左齿面：齿根 → 齿顶（半径由外向内递增的角坐标）
+    for (let i = us.length - 1; i >= 0; i--) {
+      const u = us[i]
+      ring.push(P(rb * Math.sqrt(1 + u * u), c - half(u)))
+    }
+    if (radialAtTip) ring.push(P(rTip, c - halfBase))
 
-    // rf 圆与左侧 CUT 径向线的连接点
-    ring.push([
-      cx + rf * Math.cos(c + leftBaseAngle),
-      cy + rf * Math.sin(c + leftBaseAngle)
-    ])
+    // 齿顶弧（内圆 rTip）
+    appendArc(ring, rTip, c - halfTip, c + halfTip, b.tipArc, cx, cy)
 
-    // 左侧径向线：rf -> rb
-    if (rf < rb) {
-      ring.push([
-        cx + rb * Math.cos(c + leftBaseAngle),
-        cy + rb * Math.sin(c + leftBaseAngle)
-      ])
+    // 右齿面：齿顶 → 齿根
+    if (radialAtTip) ring.push(P(rTip, c + halfBase))
+    for (const u of us) {
+      ring.push(P(rb * Math.sqrt(1 + u * u), c + half(u)))
     }
 
-    // 左渐开线：rb -> ra
-    for (const p of left) {
-      const x =
-        p[0] * Math.cos(c) -
-        p[1] * Math.sin(c)
-      const y =
-        p[0] * Math.sin(c) +
-        p[1] * Math.cos(c)
-
-      ring.push([
-        cx + x,
-        cy + y
-      ])
-    }
-
-    /*
-     * Python 的齿顶圆弧。
-     *
-     * 由于 pointo 就是 left 最末点，所以从 leftTipAngle
-     * 开始按 Ttda 正向走。
-     *
-     * 对于标准齿轮：
-     *   rightTipAngle ≈ leftTipAngle + Ttda
-     *
-     * 因此这里以 Python 的 Ttda 为主。
-     */
-    const tipSegments =
-      Math.max(1, b.tipArc)
-
-    for (let i = 1; i <= tipSegments; i++) {
-      const a =
-        leftTipAngle +
-        (Ttda * i) / tipSegments
-
-      ring.push([
-        cx + ra * Math.cos(c + a),
-        cy + ra * Math.sin(c + a)
-      ])
-    }
-
-    // 右渐开线：ra -> rb
-    for (let i = right.length - 1; i >= 0; i--) {
-      const p = right[i]
-
-      const x =
-        p[0] * Math.cos(c) -
-        p[1] * Math.sin(c)
-      const y =
-        p[0] * Math.sin(c) +
-        p[1] * Math.cos(c)
-
-      ring.push([
-        cx + x,
-        cy + y
-      ])
-    }
-
-    // 右侧径向线：rb -> rf
-    if (rf < rb) {
-      ring.push([
-        cx + rf * Math.cos(c + rightBaseAngle),
-        cy + rf * Math.sin(c + rightBaseAngle)
-      ])
-    }
-
-    /*
-     * 两个 CUT 槽之间没有被切掉的部分仍然是原来的 rf 圆。
-     *
-     * 从当前齿槽右侧一直走到下一齿槽左侧。
-     */
-    const gapStart =
-      c + rightBaseAngle
-
-    const gapEnd =
-      (k + 1) * pitch + leftBaseAngle
-
+    // 齿根弧（齿间，外圆 rRoot）
     appendArc(
       ring,
-      rf,
-      gapStart,
-      gapEnd,
-      Math.max(1, b.rootArc),
+      rRoot,
+      c + halfRoot,
+      c + pitch - halfRoot,
+      b.rootArc,
       cx,
       cy
     )

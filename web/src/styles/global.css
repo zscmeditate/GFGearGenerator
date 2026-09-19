@@ -429,9 +429,15 @@ body {
   background: rgba(232, 237, 243, 0.55);
 }
 
-.export-card {
+.export-mask .export-card.el-card {
   width: 300px;
   text-align: center;
+  /* 与 .app-brand 一致的新拟态凹陷效果 */
+  background-color: #e0e6ed;
+  border: none;
+  border-radius: 14px;
+  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
+              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
 }
 
 .export-stage {

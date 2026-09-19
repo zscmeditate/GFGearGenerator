@@ -42,8 +42,8 @@ export function buildWormDrive(o: WormOptions): MeshData {
     height: o.wheelHeight,
     helixAngleDeg: radToDeg(wormLeadAngle),
     cw: o.leftThreaded ?? false,
-    // 低精度分层数为高精度的 1/3（80/3 ≈ 27）
-    minLayers: o.hobbed ? (o.quality === 'preview' ? 27 : 80) : undefined,
+    // 低精度沿用原高精度分层数（80）；高精度再提升 5 倍至 400
+    minLayers: o.hobbed ? (o.quality === 'preview' ? 80 : 400) : undefined,
     quality: o.quality
   })
 
@@ -68,8 +68,8 @@ export function buildWormDrive(o: WormOptions): MeshData {
   mesh.merge(wheel)
 
   // —— 蜗杆（局部沿 +Z 构建，再旋转到 +X，抬到中心距高度）——
-  // 低精度分段数为高精度的 1/3（160/3 ≈ 53）
-  const segCore = o.quality === 'preview' ? 53 : 160
+  // 低精度沿用原高精度分段数（160）；高精度再提升 5 倍至 800
+  const segCore = o.quality === 'preview' ? 160 : 800
   const core = cylinderZ(rRoot, rRoot, o.wormLength, segCore, -o.wormLength / 2, 'worm-core')
   const thread = helicalThread({
     rRoot,
@@ -78,8 +78,8 @@ export function buildWormDrive(o: WormOptions): MeshData {
     length: o.wormLength,
     halfTipWidth: halfTip,
     halfRootWidth: halfRoot,
-    // 低精度每圈分段数为高精度的 1/3（48/3 = 16）
-    segPerTurn: o.quality === 'preview' ? 16 : 48,
+    // 低精度沿用原高精度每圈分段数（48）；高精度再提升 5 倍至 240
+    segPerTurn: o.quality === 'preview' ? 48 : 240,
     leftHand: o.leftThreaded,
     partName: 'worm-thread'
   })

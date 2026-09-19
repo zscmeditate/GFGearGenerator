@@ -20,8 +20,8 @@ function buildBevelOne(m: number, z: number, zMate: number, alphaDeg: number, qu
   const delta = Math.atan(z / zMate)
   const R = (m * z) / (2 * Math.sin(delta)) // 大端锥距（=分度锥母线）
   const b = R / 3 // 齿宽，取锥距 1/3（对应原 sketchcon 中 F=Ao/3）
-  // 低精度分层数为高精度的 1/3（80/3 ≈ 27）
-  const layers = quality === 'preview' ? 27 : 80
+  // 低精度沿用原高精度分层数（80）；高精度再提升 5 倍至 400
+  const layers = quality === 'preview' ? 80 : 400
   const budget = budgetFor(z, quality)
 
   const sections: Section[] = []

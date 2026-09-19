@@ -1,8 +1,9 @@
 /**
- * AI 生成齿轮 —— 提示词构建与响应解析
+ * AI 齿轮组生成 —— 提示词构建与响应解析
  *
  * 核心思路：不靠硬编码示例，而是把 schema.ts 里的齿轮类型 / 字段定义
- * 动态序列化成"类型说明书"注入系统提示词，大模型只能在给定字段和范围内输出。
+ * 动态序列化成"类型说明书"注入系统提示词；大模型只输出「齿轮参数 + 装配关系」，
+ * 空间坐标由 assembly.ts 的确定性求解器计算，模型严禁输出任何坐标。
  */
 import {
   gearTypes,
@@ -11,18 +12,19 @@ import {
   type NumberField,
   type BoolField,
   type ChoiceField,
-  type GearType,
-  type GearParams
+  type GearType
 } from '../gear/schema'
+import type { Mate, MateKind } from './assembly'
+import type { AiAssemblySnapshot } from './session'
 
 /** 每种齿轮类型的用途描述（帮助大模型理解该选哪种） */
 const TYPE_PURPOSE: Record<GearType, string> = {
   spur: '直齿圆柱齿轮：齿与轴线平行，最通用的传动形式，拿不准时默认选它',
   helical: '斜齿/人字齿圆柱齿轮：齿沿螺旋线，高速平稳；doubleHelical 开人字齿可抵消轴向力',
-  bevel: '90° 相交轴锥齿轮对（一次生成大轮+小轮）：垂直轴传动',
+  bevel: '90° 相交轴锥齿轮对（一个组件含大轮+小轮，内部已装好）：垂直轴传动',
   rack: '齿条：与小齿轮啮合，把旋转运动变为直线运动，可选直/斜齿条',
-  worm: '蜗轮蜗杆传动副：交错轴、大减速比、可自锁（蜗杆固定为单头）',
-  internal: '标准内齿圈：齿分布在圈内',
+  worm: '蜗轮蜗杆传动副（一个组件含蜗轮+蜗杆，内部已装好）：交错轴、大减速比、可自锁（蜗杆固定为单头）',
+  internal: '标准内齿圈：齿分布在圈内，可与小齿轮内啮合或用于行星轮系',
   internalNS: '非标准内齿圈：齿形参数更宽松',
   intHelical: '标准内斜齿圈',
   intHelicalNS: '非标准内斜齿圈',
@@ -56,12 +58,8 @@ function describeField(f: FieldDef): string {
   return `- ${f.id}（${b.label.split(' ')[0]}，布尔，默认 ${b.default}）`
 }
 
-/** 构建系统提示词：把 11 种齿轮类型与字段 schema 全部告诉大模型 */
-export function buildSystemPrompt(
-  currentType: GearType,
-  currentParams: GearParams,
-  currentExtra: Record<string, unknown>
-): string {
+/** 构建系统提示词：齿轮 schema + 装配协议 + 当前方案 */
+export function buildSystemPrompt(current: AiAssemblySnapshot): string {
   const typeDocs = gearTypes
     .map((g) => {
       const fields = g.fields.map(describeField).join('\n')
@@ -70,37 +68,94 @@ export function buildSystemPrompt(
     .join('\n\n')
 
   const cur = JSON.stringify(
-    { type: currentType, ...currentParams, ...currentExtra },
+    {
+      root: current.root,
+      gears: current.gears.map((g) => ({
+        id: g.id,
+        type: g.type,
+        standard: g.standard,
+        values: g.values
+      })),
+      mates: current.mates
+    },
     (k, v) => (v === undefined ? undefined : v)
   )
 
-  return `你是齿轮传动设计专家。用户用自然语言描述齿轮需求，你负责把需求转换为齿轮生成器的参数，只输出一个严格 JSON 对象。
+  return `你是齿轮传动系统设计专家。用户用自然语言描述由若干齿轮组成的传动方案，你负责：选择齿轮类型、确定参数、定义齿轮间的装配关系。空间位置、角度、齿的相位一律由宿主程序根据装配关系计算，你严禁输出 position / location / x / y / z / angle / rotation 等任何空间量。只输出一个严格 JSON 对象，禁止 markdown 代码块与任何解释文字。
+
+# 输出格式
+{
+  "assembly": {
+    "root": "g1",
+    "gears": [
+      { "id": "g1", "type": "<类型id>", "standard": "metric", "params": {"字段id": 值} }
+    ],
+    "mates": [
+      { "a": "g1", "b": "g2", "kind": "external" }
+    ]
+  },
+  "reply": "<60字以内中文：方案构成、各级速比与关键参数说明>"
+}
 
 # 可选齿轮类型与各自字段（11 种，字段 id 必须原样使用）
 ${typeDocs}
 
-# 公共字段（任何类型都可输出）
-- standard（度量制，可选 "metric" 公制=用 module 模数 / "english" 英制=用 pitch 径节，默认 metric；用户没提英制就不要输出它）
+# 公共字段
+- standard（度量制，可选 "metric" 公制=用 module 模数 / "english" 英制=用 pitch 径节，默认 metric；用户没提英制不要输出）
 
-# 输出格式（禁止 markdown 代码块、禁止任何解释文字）
-{"type":"<类型id>","standard":"metric","params":{"字段id":值,...},"reply":"<50字以内中文说明>"}
+# 装配关系 kind（mates 每项 {a,b,kind}，方向为"上级 a → 新装的 b"）
+- external：平行轴外啮合（直齿/斜齿/变位圆柱齿轮两两相配）。中心距与对错齿相位全部由程序计算，你不需要给任何角度。
+- internal：外齿轮与内齿圈（internal/internalNS/intHelical/intHelicalNS）啮合，外齿轮在齿圈内部。
+- rack：圆柱小齿轮驱动齿条（rack），旋转变直线。
+- coaxial：两根轴同轴对接（双联齿轮、级间串联、把齿轮挂到锥齿轮/蜗杆组件的伸出轴上）；两齿轮轴心重合、沿轴向并排，齿数模数互不影响。
+- bevel 和 worm 类型本身已是一副内部装配好的齿轮对，整体作为一个 gear 节点，对外只能用 coaxial 与其他轴串联，不能再对它们使用 external/internal/rack。
+- rack 只能作为某条 rack 关系的 b（从动方），不能同轴连接。
 
-# 规则
-1. params 只放需要修改的字段，且必须是该类型的字段 id；没提到的字段不要输出。
-2. 所有数值必须落在字段范围内，齿数取整数；布尔字段输出 true/false；选择字段输出引号内的枚举值。
-3. 用户提到"速比/齿数比"时：锥齿轮换算为 z（大轮）与 zPinion（小轮）齿数；蜗轮蜗杆中 z 是蜗轮齿数（蜗杆单头），速比≈z。
-4. 用户描述场景（如"减速 3 倍""高速平稳""垂直轴"）时，先选最合适的齿轮类型再定参数。
-5. reply 里简要说明你选的类型与关键参数的理由。
+# 装配拓扑（必须严格遵守）
+1. mates 必须构成以 root 为根的一棵树：root 只能是 g1 且不能出现在 b 位置；其余每个齿轮恰好作为 b 出现一次；禁止孤点、环、重复边。
+2. 齿轮总数 2~6 个；id 用 g1、g2、g3…，root 固定为 g1。
+3. 需要在同一根轴上挂多个并列行星轮时，给该条 external 关系加 "bearing": 圆周角度数（如三个行星轮均布用 0、120、240）；不确定方位就省略 bearing，程序会自动折返布局。
+4. 行星轮系固定写法：太阳轮为 g1(root)，行星轮用 external 挂在 g1 上并给 bearing 均布，内齿圈用 internal 挂在任意一个行星轮上、不要给 bearing（齿数满足 z齿圈=z太阳轮+2×z行星轮 时齿圈自动与太阳轮同心）。
 
-# 当前状态（用户没提到的参数参考此值）
+# 能装到一起的硬性参数规则（违反任何一条都会干涉或装不上，程序会报错）
+1. 互相啮合的齿轮：模数 module 必须相同（英制则径节 pitch 相同）、压力角 pressureAngle 必须相同。
+2. 斜齿外啮合：helixAngle 绝对值相等、旋向相反（一个 clockwise:true 另一个 false）、helicalSystem 相同；人字齿 doubleHelical 无需反旋向。内啮合斜齿轮旋向相同；斜齿轮与斜齿条旋向相同。
+3. 中心距是齿数的结果，严禁输出间距：外啮合 a=m(z₁+z₂)/2；内啮合 a=m(z圈−z轮)/2 且齿数差≥8；齿条节线到小齿轮轴心距离=mz/2。法向制(normal)斜齿把 m 换成 m_n/cosβ。
+4. 锥齿轮(bevel)速比=z/zPinion，轴交角固定 90°；蜗轮蜗杆(worm)为单头蜗杆、速比≈蜗轮齿数 z。两者角度与相对位置已由程序固定。
+5. 互相啮合的一对，齿宽 gearHeight 取相同值或小轮略宽；同轴串联件齿宽自便。
+6. 所有数值必须落在字段 min/max 内，齿数取整数；没提到的字段不要输出。
+
+# 多轮修改规则（重要）
+1. 每轮都必须输出完整 gears 列表并复用原有 id（g1/g2…），mates 也要完整给出。
+2. 用户只改某个齿轮（如"把 g2 换成 40 齿"）时，其他齿轮 params 可省略或照抄，未提及的装配关系保持不变。
+3. 需要新增齿轮时取下一个未使用的 id；用户明确要求删除时才从 gears 中移除并同步删掉相关 mates。
+
+# 当前方案（用户未提及修改时以此为基准；首轮为主视图当前的单个齿轮）
 ${cur}`
 }
 
-/** 解析校验后的 AI 结果 */
+/* ---------- 解析模型返回 ---------- */
+
+/** 单条齿轮的模型增量（params 仅含本轮给出的字段） */
+export interface AiAssemblyResultGear {
+  id: string
+  type: GearType
+  standard?: 'metric' | 'english'
+  params: Record<string, number | boolean | string>
+}
+
+/** 模型一次返回的齿轮组方案 */
+export interface AiAssemblyResult {
+  root: string
+  gears: AiAssemblyResultGear[]
+  mates: Mate[]
+  reply: string
+}
+
+/** 旧版单齿轮结果（主视图 applyAIGeneration 仍使用此形态） */
 export interface AiGearResult {
   type: GearType
   standard?: 'metric' | 'english'
-  /** 已按 schema 校验/钳制的字段值（含 params 与 extra 的路由由 store 处理） */
   params: Record<string, number | boolean | string>
   reply: string
 }
@@ -116,19 +171,14 @@ function extractJson(text: string): unknown {
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
 
-/** 解析并按所选类型的 schema 校验/钳制模型返回，非法字段一律丢弃 */
-export function parseAiResponse(text: string, currentType: GearType): AiGearResult {
-  const obj = extractJson(text) as Record<string, unknown>
+const MATE_KINDS: ReadonlySet<MateKind> = new Set(['external', 'internal', 'rack', 'coaxial'])
 
-  const type = typeof obj.type === 'string' && obj.type in gearTypeMap ? (obj.type as GearType) : currentType
-  const meta = gearTypeMap[type]
-
-  // 字段白名单 = 该类型的全部字段定义
-  const defs = new Map<string, FieldDef>(meta.fields.map((f) => [f.id, f]))
-
-  const params: Record<string, number | boolean | string> = {}
-  const raw = (obj.params ?? {}) as Record<string, unknown>
-  for (const [id, val] of Object.entries(raw)) {
+/** 按所选类型的 schema 校验/钳制单个齿轮的 params，非法字段一律丢弃 */
+function parseGearParams(type: GearType, raw: unknown): Record<string, number | boolean | string> {
+  const defs = new Map<string, FieldDef>(gearTypeMap[type].fields.map((f) => [f.id, f]))
+  const out: Record<string, number | boolean | string> = {}
+  const obj = (raw ?? {}) as Record<string, unknown>
+  for (const [id, val] of Object.entries(obj)) {
     const def = defs.get(id)
     if (!def) continue // 模型幻觉出的字段直接丢弃
     if ((def as NumberField).min !== undefined) {
@@ -137,23 +187,69 @@ export function parseAiResponse(text: string, currentType: GearType): AiGearResu
       if (!Number.isFinite(num)) continue
       let v = clamp(num, n.min, n.max)
       if (n.integer) v = Math.round(v)
-      params[id] = v
+      out[id] = v
     } else if ('options' in def) {
       const c = def as ChoiceField
       const hit = c.options.find((o) => o.value === val)
-      if (hit) params[id] = hit.value
+      if (hit) out[id] = hit.value
     } else if (typeof val === 'boolean') {
-      params[id] = val
+      out[id] = val
     }
   }
+  return out
+}
 
-  const standard =
-    obj.standard === 'english' || obj.standard === 'metric' ? (obj.standard as 'metric' | 'english') : undefined
+/** 解析模型返回的齿轮组方案（结构/字段层校验；物理啮合校验在合并快照后由 validateAssembly 完成） */
+export function parseAiResponse(text: string): AiAssemblyResult {
+  const top = extractJson(text) as Record<string, unknown>
+  const obj = (top.assembly && typeof top.assembly === 'object' ? top.assembly : top) as Record<string, unknown>
 
-  const reply = typeof obj.reply === 'string' ? obj.reply.trim() : ''
-
-  if (Object.keys(params).length === 0 && !standard) {
-    throw new Error('模型未给出可用的参数修改，请换个说法重试')
+  const rawGears = obj.gears
+  if (!Array.isArray(rawGears) || rawGears.length === 0) {
+    throw new Error('模型未给出齿轮列表（gears），请重试')
   }
-  return { type, standard, params, reply }
+  if (rawGears.length > 6) throw new Error('一次最多装配 6 个齿轮')
+
+  const gears: AiAssemblyResultGear[] = []
+  const usedAuto = new Set<string>()
+  rawGears.forEach((item, i) => {
+    const g = item as Record<string, unknown>
+    const fallbackId = `g${i + 1}`
+    let id = typeof g.id === 'string' && g.id.trim() ? g.id.trim() : fallbackId
+    while (usedAuto.has(id)) id = `${id}x`
+    usedAuto.add(id)
+
+    if (typeof g.type !== 'string' || !(g.type in gearTypeMap)) {
+      throw new Error(`齿轮 ${id} 的类型「${String(g.type)}」不在支持的 11 种类型内`)
+    }
+    const type = g.type as GearType
+    const standard =
+      g.standard === 'english' || g.standard === 'metric' ? (g.standard as 'metric' | 'english') : undefined
+    gears.push({ id, type, standard, params: parseGearParams(type, g.params) })
+  })
+
+  const ids = new Set(gears.map((g) => g.id))
+  const root = typeof obj.root === 'string' && ids.has(obj.root) ? obj.root : gears[0].id
+
+  const mates: Mate[] = []
+  if (Array.isArray(obj.mates)) {
+    for (const item of obj.mates) {
+      const m = item as Record<string, unknown>
+      const a = typeof m.a === 'string' ? m.a : ''
+      const b = typeof m.b === 'string' ? m.b : ''
+      if (!ids.has(a) || !ids.has(b)) continue
+      if (typeof m.kind !== 'string' || !MATE_KINDS.has(m.kind as MateKind)) {
+        throw new Error(`${a} → ${b} 的装配类型「${String(m.kind)}」无效，只能是 external/internal/rack/coaxial`)
+      }
+      const mate: Mate = { a, b, kind: m.kind as MateKind }
+      if (typeof m.bearing === 'number' && Number.isFinite(m.bearing)) {
+        mate.bearing = clamp(m.bearing, 0, 360)
+      } else if (typeof m.bearing === 'string' && Number.isFinite(Number(m.bearing))) {
+        mate.bearing = clamp(Number(m.bearing), 0, 360)
+      }
+      mates.push(mate)
+    }
+  }
+  const reply = typeof obj.reply === 'string' ? obj.reply : ''
+  return { root, gears, mates, reply: reply.trim() }
 }

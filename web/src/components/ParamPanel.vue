@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RefreshLeft } from '@element-plus/icons-vue'
+import { RefreshLeft, Setting } from '@element-plus/icons-vue'
 import { useGearStore } from '../stores/gear'
 import type { FieldDef } from '../gear/schema'
 
@@ -58,9 +58,14 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
   <el-card class="param-card" shadow="never">
     <template #header>
       <div class="param-header">
-        <div class="param-titles">
-          <span class="param-name">{{ store.meta.name }} 参数</span>
-          <span class="param-en">{{ store.meta.en }}</span>
+        <div class="param-title-wrap">
+          <span class="param-icon">
+            <el-icon :size="16"><Setting /></el-icon>
+          </span>
+          <div class="param-titles">
+            <span class="param-name">{{ store.meta.name }}参数</span>
+            <span class="param-en">{{ store.meta.en }}</span>
+          </div>
         </div>
         <el-button
           circle
@@ -147,8 +152,8 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
 }
 
 .param-card :deep(.el-card__header) {
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 12px;
+  border-bottom: 1px solid var(--el-color-primary);
 }
 
 .param-card :deep(.el-card__body) {
@@ -156,15 +161,42 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
 }
 
 .param-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
+/* 重置按钮靠右，标题块靠左（flex 容器 space-between） */
+.param-header .el-button {
+  margin-left: auto;
+}
+
+.param-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 标题左侧图标徽章：主题色着色，随右下角主题切换联动 */
+.param-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-8);
+}
+
 .param-titles {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
 }
 
@@ -268,9 +300,11 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
 }
 
 .choice-hint {
+  width: 100%;
   margin-top: 6px;
   font-size: 11px;
   color: #909399;
   line-height: 1.4;
+  text-align: center;
 }
 </style>

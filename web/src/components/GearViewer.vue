@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, watch, ref } from 'vue'
+import { onMounted, onBeforeUnmount, watch, ref, computed } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { useGearStore } from '../stores/gear'
 import { getSceneLightingForBg, type SceneLightingConfig } from '../composables/useSceneLighting'
-import matcapUrl from '../gear/geometry/313131_BBBBBB_878787_A3A4A4.png'
+import { applyMatcapTint, getMatcapTexture } from '../composables/useMatcap'
+import { buildFlatGeometry } from '../gear/mesh/flatGeometry'
 
 const store = useGearStore()
 const containerEl = ref<HTMLDivElement | null>(null)
@@ -16,20 +17,59 @@ let controls: OrbitControls
 let gearMesh: THREE.Mesh | null = null
 let gridHelper: THREE.GridHelper
 
-/* ─── MatCap 贴图（烘焙光照的灰度球体图，视图空间法线采样，不依赖场景灯光） ─── */
-let matcapTexture: THREE.Texture | null = null
-function getMatcapTexture(): THREE.Texture {
-  if (!matcapTexture) {
-    matcapTexture = new THREE.TextureLoader().load(matcapUrl)
-    matcapTexture.colorSpace = THREE.SRGBColorSpace
-  }
-  return matcapTexture
-}
+/* ─── 灯光引用（主题切换时平滑过渡） ─── */
 let keyLight: THREE.DirectionalLight
 let raf = 0
 let resizeObs: ResizeObserver
-/** 待执行的相机取景：初次构建 / 切换齿轮类型时置 true，updateGear 后消费 */
-let pendingFit = true
+
+/* ─── 齿轮类型切换过渡：双 Mesh 交叉淡入淡出 ───
+ * 点击类型后旧模型立即开始淡出（GEAR_FADE_OUT_MS）；新几何到达后启动交叉窗口
+ * （GEAR_CROSS_MS）：新模型淡入、旧模型同步收净。全程保持用户当前视角，
+ * 不做任何视口操作（需要标准取景时点"重置取景"）。 */
+const GEAR_FADE_OUT_MS = 200
+const GEAR_CROSS_MS = 200
+/** idle：无过渡；switching：淡出等待 / 交叉进行中 */
+let switchPhase: 'idle' | 'switching' = 'idle'
+/** 每次切换自增，作废上一代过渡的 rAF 回调，支持连续快速切换 */
+let switchToken = 0
+let fadeOutRaf = 0
+let crossRaf = 0
+/** 正在淡出的旧模型（可能是上一代还没淡入完的"新模型"，连点时续接调头） */
+let outMesh: THREE.Mesh | null = null
+
+/* ─── FPS 统计：渲染循环内计数，每 500ms 采样一次；轨道整体左移一步展示新样本 ─── */
+const FPS_BARS = 24 /* 可视柱数 */
+const BAR_STEP = 5 /* 单柱步进 = 3px 柱宽 + 2px 间隙 */
+const SLIDE_MS = 400 /* 平移动画时长（需小于 500ms 采样间隔） */
+const fps = ref(0)
+/** 恒保持 FPS_BARS+1 根：末尾一根是新样本，初始在视口外，随左移滑入 */
+const fpsSamples = ref<number[]>(new Array<number>(FPS_BARS).fill(0))
+const slideIdx = ref(0)
+const trackAnim = ref(true)
+const trackStyle = computed(() => ({ transform: `translateX(${-slideIdx.value * BAR_STEP}px)` }))
+const fpsLevel = computed(() => (fps.value >= 50 ? 'good' : fps.value >= 30 ? 'mid' : 'low'))
+let fpsFrames = 0
+let fpsWindowStart = performance.now()
+let slideTimer = 0
+
+/** 样本柱高：以 72fps 满格，最低 6% 作为基线 */
+function fpsBarHeight(v: number): string {
+  return `${Math.max(6, Math.min(100, (v / 72) * 100))}%`
+}
+
+/** 新样本入轨：整体左移一步，动画结束后丢掉最旧一根并把位移归零（视觉位置不变） */
+function pushFpsSample(v: number) {
+  fpsSamples.value.push(v)
+  slideIdx.value = 1
+  window.clearTimeout(slideTimer)
+  slideTimer = window.setTimeout(() => {
+    trackAnim.value = false
+    fpsSamples.value.shift()
+    slideIdx.value = 0
+    /* 下一帧再恢复动画，避免归零位移被过渡插值 */
+    requestAnimationFrame(() => requestAnimationFrame(() => (trackAnim.value = true)))
+  }, SLIDE_MS + 50)
+}
 
 /* ─── 相机模式 ─── */
 export type CameraMode = 'perspective' | 'orthographic'
@@ -198,27 +238,11 @@ function getCurrentBg(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim() || '#e0e5ec'
 }
 
-/** 读取当前主题色（--el-color-primary）并转为 THREE.Color */
-function getThemePrimaryColor(): THREE.Color {
-  const hex = getComputedStyle(document.documentElement).getPropertyValue('--el-color-primary').trim() || '#E78BAF'
-  return new THREE.Color(hex)
-}
-
-/* ─── MatCap 主题色融合 ───
- * MeshMatcapMaterial 最终颜色 = 贴图灰阶 × material.color。
- * color 直接取主题色会把暗部压成脏色，故在「白色 ↔ 主题色」间按
- * MATCAP_TINT_STRENGTH 混合：0=纯灰阶贴图，1=完全主题色 */
-const MATCAP_TINT_STRENGTH = 0.55
-const MATCAP_WHITE = new THREE.Color(0xffffff)
-
-function applyMatcapTint(mat: THREE.MeshMatcapMaterial) {
-  mat.color.lerpColors(MATCAP_WHITE, getThemePrimaryColor(), MATCAP_TINT_STRENGTH)
-}
-
 function onThemeChanged() {
   // MatCap 明暗由贴图烘焙；背景/灯光/网格平滑过渡，齿轮染色即时跟随主题色
   transitionToConfig(getSceneLightingForBg(getCurrentBg()))
   if (gearMesh) applyMatcapTint(gearMesh.material as THREE.MeshMatcapMaterial)
+  if (outMesh) applyMatcapTint(outMesh.material as THREE.MeshMatcapMaterial)
 }
 
 /* ─── 正交相机辅助 ─── */
@@ -371,114 +395,225 @@ function initScene() {
 
 function animate() {
   raf = requestAnimationFrame(animate)
-  controls.autoRotate = store.autoRotate
+  // 相机取景插值的 200ms 内关闭自动旋转（OrbitControls 每帧从 camera.position
+  // 反算内部球坐标，我们每帧直接写位置，不会与用户手动轨道冲突）
+  controls.autoRotate = switchPhase === 'idle' && store.autoRotate
   controls.update()
   renderer.render(scene, camera)
+
+  /* FPS 采样 */
+  fpsFrames++
+  const now = performance.now()
+  const elapsed = now - fpsWindowStart
+  if (elapsed >= 500) {
+    fps.value = Math.min(999, Math.round((fpsFrames * 1000) / elapsed))
+    pushFpsSample(fps.value)
+    fpsFrames = 0
+    fpsWindowStart = now
+  }
 }
 
-/**
- * 将索引网格展开为非索引网格，并为每个三角面写入面法线（常数顶点法线）。
- *
- * 关键点：MeshData.quad 固定以 (a,b,c)+(a,c,d) 对角线把四边形切成两片。
- * 螺旋齿侧这类"扭转四边形"本身非平面，两片的几何法线不同；配合 flat shading
- * 会沿圆周呈现一明一暗的三角面交替。此处识别成对的两片（6 索引排布
- * a,b,c,a,c,d），让它们共享归一化后的合成法线，明暗只在真正的分段台阶处
- * 变化；盖面等独立三角仍用各自的面法线。
- *
- * 只影响渲染法线，positions/indices 与业务几何、导出完全一致。
- */
-function buildFlatGeometry(positions: ArrayLike<number>, indices: ArrayLike<number>): THREE.BufferGeometry {
-  const triCount = indices.length / 3
-  const nx = new Float32Array(triCount * 3)
-  const va = [0, 0, 0], vb = [0, 0, 0], vc = [0, 0, 0]
-  const readV = (idx: number, out: number[]) => {
-    const o = idx * 3
-    out[0] = positions[o]
-    out[1] = positions[o + 1]
-    out[2] = positions[o + 2]
-  }
-  for (let t = 0; t < triCount; t++) {
-    const o = t * 3
-    readV(indices[o], va)
-    readV(indices[o + 1], vb)
-    readV(indices[o + 2], vc)
-    const abx = vb[0] - va[0], aby = vb[1] - va[1], abz = vb[2] - va[2]
-    const acx = vc[0] - va[0], acy = vc[1] - va[1], acz = vc[2] - va[2]
-    let x = aby * acz - abz * acy
-    let y = abz * acx - abx * acz
-    let z = abx * acy - aby * acx
-    const len = Math.hypot(x, y, z)
-    if (len > 1e-12) {
-      x /= len
-      y /= len
-      z /= len
-    }
-    nx[t * 3] = x
-    nx[t * 3 + 1] = y
-    nx[t * 3 + 2] = z
+/* ─── 取景：纯计算 / 瞬时应用（算法与原 fitView 一致） ─── */
+
+interface CameraView {
+  position: THREE.Vector3
+  near: number
+  far: number
+  /** 仅正交相机有效 */
+  ortho: { left: number; right: number; top: number; bottom: number } | null
+  shadowR: number
+  groundY: number
+}
+
+/** 纯计算目标取景，不改任何相机/场景状态（副作用集中在 applyViewInstant） */
+function computeView(geom: THREE.BufferGeometry): CameraView {
+  geom.computeBoundingBox()
+  const bb = geom.boundingBox!
+  const size = new THREE.Vector3()
+  bb.getSize(size)
+  const radius = Math.max(size.x, size.y, size.z) / 2
+
+  const aspect = (containerEl.value!.clientWidth / containerEl.value!.clientHeight) || 1
+  const dir = new THREE.Vector3(0.75, 0.55, 0.9).normalize()
+  const v: CameraView = {
+    position: new THREE.Vector3(),
+    near: 0.1,
+    far: radius * 40,
+    ortho: null,
+    shadowR: Math.max(radius * 1.5, 10),
+    groundY: bb.min.y - 2,
   }
 
-  // partner[t] >= 0 表示与同组另一片共享法线（存储对方的三角索引）
-  const partner = new Int32Array(triCount).fill(-1)
-  for (let p = 0; p + 6 <= indices.length; ) {
-    // quad 连续写入 a,b,c,a,c,d：第 1/4、第 3/5 索引相同
-    if (indices[p] === indices[p + 3] && indices[p + 2] === indices[p + 4]) {
-      const t1 = p / 3
-      partner[t1] = t1 + 1
-      partner[t1 + 1] = t1
-      p += 6
-    } else {
-      p += 3
+  if (cameraMode.value === 'perspective') {
+    const pCam = camera as THREE.PerspectiveCamera
+    const fov = (pCam.fov * Math.PI) / 180
+    const dist = (radius / Math.sin(fov / 2)) * 0.85
+    v.position.copy(dir.clone().multiplyScalar(Math.max(dist, 20)))
+    v.near = Math.max(0.01, radius / 200)
+    v.far = dist * 30
+  } else {
+    const frustum = radius * 1.2
+    v.ortho = {
+      left: -frustum * aspect,
+      right: frustum * aspect,
+      top: frustum,
+      bottom: -frustum,
     }
+    v.position.copy(dir.clone().multiplyScalar(Math.max(radius * 3, 50)))
   }
+  return v
+}
 
-  const finalNx = new Float32Array(triCount * 3)
-  for (let t = 0; t < triCount; t++) {
-    const k = partner[t]
-    const o = t * 3
-    if (k < 0 || t < k) {
-      let x = nx[o], y = nx[o + 1], z = nx[o + 2]
-      if (k >= 0) {
-        x += nx[k * 3]
-        y += nx[k * 3 + 1]
-        z += nx[k * 3 + 2]
-        const len = Math.hypot(x, y, z)
-        if (len > 1e-12) {
-          x /= len
-          y /= len
-          z /= len
-        }
-      }
-      finalNx[o] = x
-      finalNx[o + 1] = y
-      finalNx[o + 2] = z
-      if (k >= 0) {
-        finalNx[k * 3] = x
-        finalNx[k * 3 + 1] = y
-        finalNx[k * 3 + 2] = z
-      }
+/** 阴影相机范围 + 网格地面高度：对遮挡关系不敏感，过渡开始时瞬时切到目标 */
+function applyViewEnv(v: CameraView) {
+  keyLight.target.position.set(0, 0, 0)
+  const sc = keyLight.shadow.camera
+  sc.left = -v.shadowR
+  sc.right = v.shadowR
+  sc.top = v.shadowR
+  sc.bottom = -v.shadowR
+  sc.near = 1
+  sc.far = v.shadowR * 6
+  sc.updateProjectionMatrix()
+  if (isFinite(v.groundY)) gridHelper.position.y = v.groundY
+}
+
+function applyViewInstant(v: CameraView) {
+  controls.target.set(0, 0, 0)
+  camera.position.copy(v.position)
+  camera.near = v.near
+  camera.far = v.far
+  if (v.ortho && cameraMode.value === 'orthographic') {
+    const o = camera as THREE.OrthographicCamera
+    o.left = v.ortho.left
+    o.right = v.ortho.right
+    o.top = v.ortho.top
+    o.bottom = v.ortho.bottom
+  }
+  camera.updateProjectionMatrix()
+  applyViewEnv(v)
+}
+
+/* ─── 齿轮 Mesh 工厂与释放（matcap 贴图是模块单例，material.dispose 不影响贴图） ─── */
+
+function createGearMaterial(): THREE.MeshMatcapMaterial {
+  const mat = new THREE.MeshMatcapMaterial({
+    matcap: getMatcapTexture(),
+    // 面法线由 buildFlatGeometry 逐面写入（同一四边形两片共享法线），
+    // 不使用 flatShading 的导数法线：后者在 DoubleSide 下不会为背面翻转，
+    // 会使端部露出的背面/掠射面片采到贴图暗缘
+    flatShading: false,
+    side: THREE.DoubleSide,
+  })
+  applyMatcapTint(mat)
+  // 新材质要承接当前线框状态（旧实现复用同一材质所以天然保留）
+  ;(mat as unknown as THREE.Material & { wireframe: boolean }).wireframe = store.wireframe
+  return mat
+}
+
+function disposeGearMesh(m: THREE.Mesh) {
+  scene.remove(m)
+  m.geometry.dispose()
+  ;(m.material as THREE.Material).dispose()
+}
+
+/* ─── 双 Mesh 交叉过渡 ─── */
+
+/** 旧模型淡出；从当前 opacity 续接，连点调头也自然 */
+function startFadeOut(token: number) {
+  const m = outMesh
+  if (!m) return
+  const mat = m.material as THREE.MeshMatcapMaterial
+  // 透明期不写深度：即使 opacity=0 仍挂在场景，也不会遮挡新模型
+  mat.transparent = true
+  mat.depthWrite = false
+  m.castShadow = false
+  m.renderOrder = 1
+
+  const fromOp = mat.opacity
+  const duration = Math.max(80, GEAR_FADE_OUT_MS * Math.max(fromOp, 0.0001))
+  const start = performance.now()
+
+  const tick = () => {
+    if (token !== switchToken || outMesh !== m) return
+    const p = Math.min((performance.now() - start) / duration, 1)
+    mat.opacity = fromOp * (1 - easeInOutCubic(p))
+    if (p < 1) fadeOutRaf = requestAnimationFrame(tick)
+    // 到 0 后保留在场景（不可见/不写深度/不投影），由 cross 收尾统一释放
+  }
+  fadeOutRaf = requestAnimationFrame(tick)
+}
+
+/** 齿轮类型变化：当前主模型转为淡出方，新几何到达后进入交叉 */
+function beginGearSwitch() {
+  const token = ++switchToken
+  cancelAnimationFrame(fadeOutRaf)
+  cancelAnimationFrame(crossRaf)
+
+  // 首屏几何尚未构建：无物可淡出，保持 idle，首帧直接显示
+  if (!gearMesh && !outMesh) return
+
+  // 上一代 cross 中更早的旧模型还没释放：直接淘汰
+  if (gearMesh && outMesh) {
+    disposeGearMesh(outMesh)
+    outMesh = null
+  }
+  // 当前主模型（可能是上一代淡入到一半的"新模型"）转为淡出方；
+  // 空窗等待期（gearMesh 已 null）则让现有 outMesh 继续淡出即可
+  if (gearMesh) {
+    outMesh = gearMesh
+    gearMesh = null
+  }
+  switchPhase = 'switching'
+  startFadeOut(token)
+}
+
+/** 新几何到达：建新模型，启动 GEAR_CROSS_MS 交叉窗口（淡入；相机保持静止） */
+function startCrossFade(token: number, flat: THREE.BufferGeometry) {
+  // 仅同步阴影范围/网格地面到新模型，不动相机
+  applyViewEnv(computeView(flat))
+
+  const mat = createGearMaterial()
+  mat.transparent = true
+  mat.opacity = 0
+  mat.depthWrite = false
+  const m = new THREE.Mesh(flat, mat)
+  m.castShadow = false
+  m.receiveShadow = true
+  m.renderOrder = 2
+  scene.add(m)
+  gearMesh = m
+
+  const old = outMesh
+  const oldFromOp = old ? (old.material as THREE.MeshMatcapMaterial).opacity : 0
+
+  const start = performance.now()
+  const tick = () => {
+    if (token !== switchToken) return
+    const p = Math.min((performance.now() - start) / GEAR_CROSS_MS, 1)
+    const e = easeInOutCubic(p)
+
+    // 新模型淡入；相机保持静止，不做任何视口操作
+    mat.opacity = e
+    // 旧模型在同一窗口内兜底收净（几何晚到时它可能已自行淡到 0）
+    if (old && old.parent) {
+      ;(old.material as THREE.MeshMatcapMaterial).opacity = oldFromOp * (1 - e)
     }
-  }
 
-  const outPositions = new Float32Array(indices.length * 3)
-  const outNormals = new Float32Array(indices.length * 3)
-  for (let t = 0; t < triCount; t++) {
-    for (let q = 0; q < 3; q++) {
-      const src = indices[t * 3 + q] * 3
-      const dst = (t * 3 + q) * 3
-      outPositions[dst] = positions[src]
-      outPositions[dst + 1] = positions[src + 1]
-      outPositions[dst + 2] = positions[src + 2]
-      outNormals[dst] = finalNx[t * 3]
-      outNormals[dst + 1] = finalNx[t * 3 + 1]
-      outNormals[dst + 2] = finalNx[t * 3 + 2]
+    if (p < 1) {
+      crossRaf = requestAnimationFrame(tick)
+      return
     }
-  }
 
-  const geom = new THREE.BufferGeometry()
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(outPositions, 3))
-  geom.setAttribute('normal', new THREE.Float32BufferAttribute(outNormals, 3))
-  return geom
+    if (old && old.parent) disposeGearMesh(old)
+    if (outMesh === old) outMesh = null
+    mat.opacity = 1
+    mat.transparent = false
+    mat.depthWrite = true
+    m.castShadow = true
+    switchPhase = 'idle'
+  }
+  crossRaf = requestAnimationFrame(tick)
 }
 
 function updateGear() {
@@ -488,83 +623,35 @@ function updateGear() {
   const flat = buildFlatGeometry(data.positions, data.indices)
   flat.computeBoundingBox()
 
-  if (gearMesh) {
-    gearMesh.geometry.dispose()
-    gearMesh.geometry = flat
-  } else {
-    // MatCap 材质：以视图空间法线采样烘焙球贴图，明暗随相机角度变化；
-    // color 在白色与主题色之间混合，保留灰阶层次的同时融入主题色调
-    const mat = new THREE.MeshMatcapMaterial({
-      matcap: getMatcapTexture(),
-      // 面法线由 buildFlatGeometry 逐面写入（同一四边形两片共享法线），
-      // 不再使用 flatShading 的导数法线：后者在 DoubleSide 下不会为背面翻转，
-      // 会使端部露出的背面/掠射面片采到贴图暗缘
-      flatShading: false,
-      side: THREE.DoubleSide
-    })
-    applyMatcapTint(mat)
-    gearMesh = new THREE.Mesh(flat, mat)
+  // 首次构建：直接显示并取景
+  if (!gearMesh && !outMesh && switchPhase === 'idle') {
+    gearMesh = new THREE.Mesh(flat, createGearMaterial())
     gearMesh.castShadow = true
     gearMesh.receiveShadow = true
     scene.add(gearMesh)
-    pendingFit = true
+    applyViewInstant(computeView(flat))
+    return
   }
 
-  if (pendingFit) {
-    fitView(flat)
-    pendingFit = false
+  if (switchPhase === 'switching') {
+    if (gearMesh) {
+      // 交叉窗口内的后续重建（如切换后立刻拖滑块）：只换几何，动画继续
+      gearMesh.geometry.dispose()
+      gearMesh.geometry = flat
+      return
+    }
+    startCrossFade(switchToken, flat)
+    return
   }
+
+  // idle：参数微调等普通重建即时替换几何，视角保持用户当前状态
+  gearMesh!.geometry.dispose()
+  gearMesh!.geometry = flat
 }
 
-watch(() => store.type, () => { pendingFit = true })
-
-function fitView(geom: THREE.BufferGeometry) {
-  geom.computeBoundingBox()
-  const bb = geom.boundingBox!
-  const center = new THREE.Vector3()
-  bb.getCenter(center)
-  const size = new THREE.Vector3()
-  bb.getSize(size)
-  const radius = Math.max(size.x, size.y, size.z) / 2
-  controls.target.set(0, 0, 0)
-
-  if (cameraMode.value === 'perspective') {
-    const pCam = camera as THREE.PerspectiveCamera
-    const fov = (pCam.fov * Math.PI) / 180
-    const dist = (radius / Math.sin(fov / 2)) * 0.85
-    const dir = new THREE.Vector3(0.75, 0.55, 0.9).normalize()
-    camera.position.copy(dir.multiplyScalar(Math.max(dist, 20)))
-    pCam.near = Math.max(0.01, radius / 200)
-    pCam.far = dist * 30
-    pCam.updateProjectionMatrix()
-  } else {
-    const ortho = camera as THREE.OrthographicCamera
-    const aspect = (containerEl.value!.clientWidth / containerEl.value!.clientHeight) || 1
-    const frustum = radius * 1.2
-    ortho.left   = -frustum * aspect
-    ortho.right  =  frustum * aspect
-    ortho.top    =  frustum
-    ortho.bottom = -frustum
-    ortho.near   = 0.1
-    ortho.far = radius * 40
-    ortho.updateProjectionMatrix()
-    const dir = new THREE.Vector3(0.75, 0.55, 0.9).normalize()
-    camera.position.copy(dir.multiplyScalar(Math.max(radius * 3, 50)))
-  }
-
-  const shadowR = Math.max(radius * 1.5, 10)
-  keyLight.target.position.set(0, 0, 0)
-  keyLight.shadow.camera.left = -shadowR
-  keyLight.shadow.camera.right = shadowR
-  keyLight.shadow.camera.top = shadowR
-  keyLight.shadow.camera.bottom = -shadowR
-  keyLight.shadow.camera.near = 1
-  keyLight.shadow.camera.far = shadowR * 6
-  keyLight.shadow.camera.updateProjectionMatrix()
-
-  const groundY = bb.min.y - 2
-  if (isFinite(groundY)) gridHelper.position.y = groundY < 0 ? groundY : bb.min.y - 2
-}
+watch(() => store.type, () => {
+  beginGearSwitch()
+})
 
 watch(
   () => store.mesh,
@@ -576,12 +663,15 @@ watch(
   (wf) => {
     // Material 运行时支持 wireframe，但 @types/three 的 MeshMatcapMaterial 未声明
     if (gearMesh) (gearMesh.material as THREE.Material & { wireframe: boolean }).wireframe = wf
+    if (outMesh) (outMesh.material as THREE.Material & { wireframe: boolean }).wireframe = wf
   }
 )
 
 defineExpose({
   reset: () => {
-    if (gearMesh) fitView(gearMesh.geometry)
+    // 过渡中忽略（窗口仅 200ms），避免与交叉收尾的资源释放竞争
+    if (switchPhase !== 'idle' || !gearMesh) return
+    applyViewInstant(computeView(gearMesh.geometry))
   },
   switchCameraMode,
   topView,
@@ -592,9 +682,12 @@ onMounted(initScene)
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
   cancelAnimationFrame(transitionRaf)
+  cancelAnimationFrame(fadeOutRaf)
+  cancelAnimationFrame(crossRaf)
+  if (outMesh) disposeGearMesh(outMesh)
+  window.clearTimeout(slideTimer)
   bgObserver?.disconnect()
   resizeObs?.disconnect()
-  matcapTexture?.dispose()
   controls?.dispose()
   renderer?.dispose()
   renderer?.domElement.remove()
@@ -602,5 +695,117 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="containerEl" class="gear-viewer"></div>
+  <div ref="containerEl" class="gear-viewer">
+    <!-- 右下角帧率显示 -->
+    <div class="fps-hud" :class="fpsLevel">
+      <div class="fps-readout">
+        <span class="fps-value">{{ fps }}</span>
+        <span class="fps-unit">FPS</span>
+      </div>
+      <div class="fps-spark">
+        <div class="fps-viewport">
+          <div class="fps-track" :class="{ anim: trackAnim }" :style="trackStyle">
+            <span
+              v-for="(v, i) in fpsSamples"
+              :key="i"
+              class="fps-bar"
+              :style="{ height: fpsBarHeight(v) }"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.fps-hud {
+  --fps-color: var(--el-color-primary);
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(150, 160, 175, 0.18);
+  box-shadow: 0 2px 8px rgba(110, 125, 150, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.fps-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.fps-value {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--fps-color);
+}
+
+.fps-unit {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #9aa3b2;
+}
+
+.fps-spark {
+  height: 20px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(150, 160, 175, 0.25);
+}
+
+.fps-viewport {
+  width: 118px; /* 24 根可视柱：24 × (3+2) − 2 */
+  height: 100%;
+  overflow: hidden;
+}
+
+.fps-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100%;
+  will-change: transform;
+}
+
+.fps-track.anim {
+  transition: transform 0.4s linear;
+}
+
+.fps-bar {
+  flex: none;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--fps-color);
+  opacity: 0.28;
+}
+
+.fps-bar:last-child {
+  opacity: 0.85;
+}
+
+/* 健康度配色：跟随主题主色 / 中等 / 偏低 */
+.fps-hud.good {
+  --fps-color: var(--el-color-primary);
+}
+
+.fps-hud.mid {
+  --fps-color: #e6a23c;
+}
+
+.fps-hud.low {
+  --fps-color: #f56c6c;
+}
+</style>

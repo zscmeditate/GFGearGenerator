@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   MagicStick,
@@ -20,7 +20,7 @@ import { gearTypes, type GearType, type Standard } from './gear/schema'
 import type { Quality } from './gear/geometry'
 import GearViewer from './components/GearViewer.vue'
 import ParamPanel from './components/ParamPanel.vue'
-import AiDialog from './components/AiDialog.vue'
+import AiChat from './components/AiChat.vue'
 import { exportMesh, downloadBlob, type ExportFormat } from './cad/exporters'
 import { themePresets, applyPrimary, useThemeColor } from './composables/useThemeColor'
 
@@ -29,6 +29,8 @@ const { currentColor } = useThemeColor()
 const viewerRef = ref<InstanceType<typeof GearViewer> | null>(null)
 const exportStage = ref('')
 const exportPct = ref(0)
+/** 导出进度百分比固定保留两位小数 */
+const formatExportPct = (pct: number) => `${pct.toFixed(2)}%`
 
 /** 相机投影模式持久化（透视 / 正交） */
 const CAMERA_STORAGE_KEY = 'gf-camera-mode'
@@ -49,9 +51,52 @@ let typeScrollRO: ResizeObserver | null = null
 function centerTypeScroll() {
   const el = headerTypesRef.value
   if (!el) return
-  el.scrollLeft =
-    el.scrollWidth > el.clientWidth ? (el.scrollWidth - el.clientWidth) / 2 : 0
+  const v = el.scrollWidth > el.clientWidth ? (el.scrollWidth - el.clientWidth) / 2 : 0
+  el.scrollLeft = v
 }
+
+/**
+ * 窄屏溢出时的"提前平移"：视口左右各保留约 2 个按钮宽的缓冲带，
+ * 选中项一旦进入缓冲带（即使仍完整可见），就平滑滚动把它送到缓冲带内缘，
+ * 使更外侧被遮挡的类型在被点到之前就先露出来，避免只能点击露出的一小条；
+ * 选中项在中间安全区时不滚动，保持视觉稳定。
+ */
+const EDGE_ZONE_ITEMS = 2
+
+function scrollActiveTypeIntoView() {
+  const el = headerTypesRef.value
+  if (!el || el.scrollWidth <= el.clientWidth) return
+  const buttons = Array.from(el.querySelectorAll<HTMLElement>('.el-radio-button'))
+  const active = el.querySelector<HTMLElement>('.el-radio-button.is-active')
+  if (!active || buttons.length === 0) return
+  // 缓冲带宽度按实际按钮平均宽度计算，适配不同字号/窗口
+  const avgWidth =
+    buttons.reduce((sum, b) => sum + b.offsetWidth, 0) / buttons.length
+  const zone = avgWidth * EDGE_ZONE_ITEMS
+  const boxLeft = el.getBoundingClientRect().left
+  const relLeft = active.getBoundingClientRect().left - boxLeft
+  const relRight = relLeft + active.offsetWidth
+  let target: number | null = null
+  if (relLeft < zone) {
+    // 靠近/越过左边缘：scrollLeft 减小，整组右移，选中项停在缓冲带内缘
+    target = el.scrollLeft - (zone - relLeft)
+  } else if (relRight > el.clientWidth - zone) {
+    // 靠近/越过右边缘：scrollLeft 增大，整组左移，选中项停在缓冲带内缘
+    target = el.scrollLeft + (relRight - (el.clientWidth - zone))
+  }
+  if (target === null) return
+  target = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth))
+  if (Math.abs(target - el.scrollLeft) < 1) return
+  el.scrollTo({ left: target, behavior: 'smooth' })
+}
+
+// 齿轮类型变化（点击分段项 / AI 生成）后，若新选中项进入边缘缓冲带则提前平滑平移；
+// flush: 'post' 保证在 is-active 选中态更新到 DOM 后再测量位置
+watch(
+  () => store.type,
+  () => scrollActiveTypeIntoView(),
+  { flush: 'post' }
+)
 
 /** 齿轮类型图标：resources/public/icons 下与 schema.icon 同名的 PNG */
 function iconUrl(icon: string): string {
@@ -91,13 +136,17 @@ onMounted(() => {
   if (cameraMode.value === 'orthographic') {
     viewerRef.value?.switchCameraMode('orthographic')
   }
-  // 等按钮按字体完成布局后定位滚动；容器尺寸变化（窗口缩放）时重新居中
+  // 等按钮文字字体完成布局后定位滚动；容器尺寸变化（窗口缩放）时重新居中。
+  // 只观察容器本身：选中项字重 500→600 会让内组宽度发生亚像素变化，
+  // 若连内组一起观察，每次切换类型都会触发强制居中，与"选中项滚入视野"互相打架；
+  // 初始字体晚加载改用 document.fonts.ready 兜底
   requestAnimationFrame(centerTypeScroll)
+  if ('fonts' in document) {
+    void document.fonts.ready.then(centerTypeScroll)
+  }
   typeScrollRO = new ResizeObserver(centerTypeScroll)
   if (headerTypesRef.value) {
     typeScrollRO.observe(headerTypesRef.value)
-    const group = headerTypesRef.value.querySelector('.el-radio-group')
-    if (group) typeScrollRO.observe(group)
   }
 })
 
@@ -232,7 +281,7 @@ async function doExport(fmt: ExportFormat) {
 
             <div v-if="store.exporting" class="export-mask">
               <el-card class="export-card" shadow="always">
-                <el-progress :percentage="exportPct" :stroke-width="10" />
+                <el-progress :percentage="exportPct" :stroke-width="10" :format="formatExportPct" />
                 <div class="export-stage">{{ exportStage }}</div>
               </el-card>
             </div>
@@ -370,7 +419,7 @@ async function doExport(fmt: ExportFormat) {
       </div>
     </el-popover>
 
-    <AiDialog v-model="aiOpen" />
+    <AiChat v-model="aiOpen" />
   </el-container>
 </template>
 
@@ -413,6 +462,9 @@ async function doExport(fmt: ExportFormat) {
   border: none;
   border-radius: 0;
   background: transparent;
+  /* 高亮伪元素的定位基准 + 层叠上下文：伪元素 z=-1 垫在文字/图标下方 */
+  position: relative;
+  z-index: 0;
   /* 去掉 Element radio-button 自带的描边与相邻分隔线，整体性由组轨道承担 */
   box-shadow: none;
   color: #5b6472;
@@ -442,23 +494,37 @@ async function doExport(fmt: ExportFormat) {
   background: var(--el-color-primary-light-9);
 }
 
-/* 选中项：组内的高亮滑块（浅粉渐变 + 底部 2px 指示线），不产生独立按钮感 */
+/* 选中项：组内的高亮滑块（浅粉渐变 + 底部 2px 指示线），不产生独立按钮感。
+   渐变与指示线画在伪元素上、用 opacity 过渡：background-image 无法过渡，
+   写在 inner 上失选会瞬间消失，叠加 Element :checked 的纯主题色
+   background-color 渐隐，旧项会先闪一下粉色再变灰 */
 .gear-type-group :deep(.el-radio-button.is-active .el-radio-button__inner) {
   color: var(--el-color-primary-dark-2);
+  /* 显式压平 Element :checked 规则的纯主题色背景与接缝阴影，失选时无物可渐隐 */
+  background-color: transparent;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+/* 选中高亮层：随选中态以 opacity 平滑淡入淡出 */
+.gear-type-group :deep(.el-radio-button__inner)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
   background-image: linear-gradient(
     180deg,
     var(--el-color-primary-light-8),
     var(--el-color-primary-light-7)
   );
-  font-weight: 600;
   box-shadow: inset 0 -2px 0 0 var(--el-color-primary);
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 
-/* Element Plus 默认对 :first-child .el-radio-button__inner 设置 box-shadow: none !important，
-   会吞掉首项选中时的底部 2px 粉色指示线；用同等优先级覆盖恢复 */
-.gear-type-group
-  :deep(.el-radio-button.is-active:first-child .el-radio-button__inner) {
-  box-shadow: inset 0 -2px 0 0 var(--el-color-primary) !important;
+.gear-type-group :deep(.el-radio-button.is-active .el-radio-button__inner)::before {
+  opacity: 1;
 }
 
 /* 齿轮类型图标（resources PNG）：默认深灰原图，选中态用同图 mask 染成当前主题色 */

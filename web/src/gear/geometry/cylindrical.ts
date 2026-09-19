@@ -36,9 +36,9 @@ export interface CylOptions {
 
 function layerCount(totalTwist: number, quality: 'preview' | 'high', minLayers = 2) {
   if (Math.abs(totalTwist) < 1e-6) return Math.max(2, minLayers)
-  // 低精度容差为高精度的 3 倍（层数约为 1/3），层数上限同为 1/3
-  const tol = degToRad(quality === 'preview' ? 4.5 : 1.5)
-  const max = quality === 'preview' ? 100 : 300
+  // 低精度沿用原高精度参数（容差 1.5°、层数上限 300）；高精度容差再缩小 5 倍、上限提升 5 倍
+  const tol = degToRad(quality === 'preview' ? 1.5 : 0.3)
+  const max = quality === 'preview' ? 300 : 1500
   return clamp(Math.max(Math.ceil(Math.abs(totalTwist) / tol) + 1, minLayers), 2, max)
 }
 
