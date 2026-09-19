@@ -422,7 +422,7 @@ async function doExport(fmt: ExportFormat) {
 
     <AiChat v-model="aiOpen" />
 
-    <!-- 左下角版本号：与左上角 brand 同款新拟态凹陷风格，一行字高 -->
+    <!-- 左下角版本号：扁平化风格，一行字高 -->
     <div class="app-version">v{{ appVersion }}</div>
   </el-container>
 </template>
