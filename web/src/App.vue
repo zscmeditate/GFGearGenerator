@@ -23,6 +23,7 @@ import ParamPanel from './components/ParamPanel.vue'
 import AiChat from './components/AiChat.vue'
 import { exportMesh, downloadBlob, type ExportFormat } from './cad/exporters'
 import { themePresets, applyPrimary, useThemeColor } from './composables/useThemeColor'
+import { version as appVersion } from '../package.json'
 
 const store = useGearStore()
 const { currentColor } = useThemeColor()
@@ -420,6 +421,9 @@ async function doExport(fmt: ExportFormat) {
     </el-popover>
 
     <AiChat v-model="aiOpen" />
+
+    <!-- 左下角版本号：与左上角 brand 同款新拟态凹陷风格，一行字高 -->
+    <div class="app-version">v{{ appVersion }}</div>
   </el-container>
 </template>
 
@@ -660,5 +664,30 @@ async function doExport(fmt: ExportFormat) {
 
 .top-view-fab :deep(.el-icon) {
   font-size: 16px;
+}
+
+/* ---------- 左下角版本号：与左上角 brand 同款新拟态凹陷风格，一行字高 ---------- */
+.app-version {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 100;
+  width: 278px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #e0e6ed;
+  border-radius: 10px;
+  /* 与 .app-brand 一致的新拟态凹陷：左上内阴影（暗）+ 右下内阴影（亮） */
+  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
+              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: #8a93a3;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
 }
 </style>
