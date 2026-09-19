@@ -36,8 +36,9 @@ export interface CylOptions {
 
 function layerCount(totalTwist: number, quality: 'preview' | 'high', minLayers = 2) {
   if (Math.abs(totalTwist) < 1e-6) return Math.max(2, minLayers)
-  const tol = degToRad(quality === 'preview' ? 10 : 1.5)
-  const max = quality === 'preview' ? 40 : 300
+  // 低精度容差为高精度的 3 倍（层数约为 1/3），层数上限同为 1/3
+  const tol = degToRad(quality === 'preview' ? 4.5 : 1.5)
+  const max = quality === 'preview' ? 100 : 300
   return clamp(Math.max(Math.ceil(Math.abs(totalTwist) / tol) + 1, minLayers), 2, max)
 }
 

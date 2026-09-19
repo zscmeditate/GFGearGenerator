@@ -87,7 +87,7 @@ export const defaultParams: GearParams = {
   wormHobbed: false
 }
 
-const moduleField = (): NumberField => ({ id: 'module', label: '模数 Module', min: 0.4, max: 75, step: 0.05, measure: 'dp', default: 3 })
+const moduleField = (): NumberField => ({ id: 'module', label: '模数 Module', min: 0.4, max: 75, step: 0.05, measure: 'mm', default: 3 })
 const pitchField = (): NumberField => ({ id: 'pitch', label: '径节 Pitch [DP]', min: 0.34, max: 63.5, step: 0.1, measure: 'dp', default: 0 })
 const zField = (): NumberField => ({ id: 'z', label: '齿数 Teeth', min: 6, max: 250, step: 1, integer: true, measure: 'count', default: 17 })
 const heightField = (label = '齿宽 Gear height'): NumberField => ({ id: 'gearHeight', label, min: 0.5, max: 500, step: 0.5, measure: 'mm', default: 10 })

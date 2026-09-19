@@ -1,469 +1,498 @@
 /* ===================================================================
- * GFGearGenerator —— Neumorphism-UI 风格布局
- * 控件视觉（阴影/圆角/颜色）全部消费 neu.css 中的组件库 Token：
- * --bg-color / --text-color / --shadow-light / --shadow-dark / --accent
+ * GFGearGenerator —— Element Plus 布局与视觉样式
+ * 浅色系工业风：冷灰蓝底 + 白色浮动面板 + 柔和阴影 + 圆润卡片。
+ * 品牌主色统一走 --el-color-primary* 变量（右下角主题按钮可切换）。
  * =================================================================== */
 
 :root {
-  --font: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --danger: #e5484d;
-  --success: #22c55e;
-  --warn: #b5791a;
+  /* 品牌强调色（默认柔粉 #E78BAF），useThemeColor 会在运行时覆盖全色阶 */
+  --el-color-primary: #e78baf;
+  --el-color-primary-light-3: #eeaec7;
+  --el-color-primary-light-5: #f3c5d7;
+  --el-color-primary-light-7: #f8dce7;
+  --el-color-primary-light-8: #fae8ef;
+  --el-color-primary-light-9: #fdf3f7;
+  --el-color-primary-dark-2: #b96f8c;
+
+  /* 统一几何/阴影 token */
+  --app-radius-card: 14px;
+  --app-radius-pill: 18px;
+  --app-shadow-card: 0 4px 18px rgba(110, 125, 150, 0.12);
+  --app-shadow-float: 0 6px 20px rgba(110, 125, 150, 0.18);
+  /* 新拟物内凹：左上内壁暗影 + 右下内壁高光，模拟左上方光源下压出的凹槽 */
+  --app-shadow-inset: inset 7px 7px 18px rgba(110, 125, 150, 0.22),
+    inset -7px -7px 18px rgba(255, 255, 255, 0.75);
+
+  /* 3D 场景桥接变量：GearViewer 读取它匹配场景光照预设 */
+  --bg-color: #e8edf3;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html, body, #app {
+html,
+body,
+#app {
   margin: 0;
   height: 100%;
   overflow: hidden;
 }
 
 body {
-  padding: 0;
-  font-family: var(--font);
-  color: var(--text-color);
+  font-family: 'Inter', 'Microsoft YaHei', 'PingFang SC', Helvetica, Arial, sans-serif;
   background: var(--bg-color);
-  font-size: 13px;
-  user-select: none;
+  color: #344054;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 整区内凹：白色卡片如浮于凹槽之中，边缘保留柔和过渡 */
+  box-shadow: var(--app-shadow-inset);
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
-}
-
-/* ---------- 布局骨架 ---------- */
+/* ---------- 整体布局：Header + (Left / Scene / Right) ---------- */
 .app-shell {
-  display: grid;
-  grid-template-columns: 300px 1fr 240px;
-  grid-template-rows: 96px 1fr;
-  grid-template-areas: 'top top top' 'left main right';
-  height: 100%;
-  padding: 12px;
-  border-radius: var(--neu-radius-sm);
-  box-shadow:
-    inset var(--neu-d3) var(--neu-d3) var(--neu-b3) var(--shadow-dark),
-    inset var(--neu-d3-n) var(--neu-d3-n) var(--neu-b3) var(--shadow-light);
+  height: 100vh;
 }
 
-/* ---------- 顶部水平菜单栏 ---------- */
-.topbar {
-  grid-area: top;
-  position: relative;
+/* Header 无外层底色面板，齿轮分段控件与 AI 按钮直接悬浮于背景之上；
+   无水平外边距，使 header 横向跨度与下方 body 完全一致；
+   三列宽度 300px / 1fr / 252px 与左 aside / scene / 右 aside 的外宽一一对应，
+   中列内容再叠加 6px 水平内边距（与 .scene-main 的 6px padding 一致），
+   从而齿轮类型组的可用宽度与 scene 卡片宽度严格相等，且水平中心对齐 */
+.app-header {
+  height: 72px;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr 252px;
+  align-items: center;
+  /* 顶部不留白（LOGO 区贴顶），仅保留下方 3px 与场景区的间隔 */
+  margin: 0 0 3px;
+  padding: 0;
+}
+
+/* ---------- 左上角品牌 LOGO 区 ----------
+   占据 grid 第 1 列（300px，与左参数栏外宽一致）；
+   新拟态凹陷区：高度 52px，背景贴近页面底色 + inset 双向内阴影；
+   内容在卡片内水平居中 */
+.app-brand {
+  grid-column: 1;
+  justify-self: start;
+  margin-left: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 32px;
-  z-index: 5;
+  gap: 8px;
   min-width: 0;
+  width: 278px;
+  height: 52px;
+  padding: 0 12px;
+  background-color: #e0e6ed;
+  border-radius: 14px;
+  /* 新拟态凹陷：左上内阴影（暗）+ 右下内阴影（亮） */
+  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
+              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
 }
 
-/* 右上角 AI 生成按钮（圆形 + 主题色底色） */
-.ai-btn-wrap {
-  position: absolute;
-  right: 32px;
-  top: 50%;
-  transform: translateY(-50%);
+/* 图标徽章：主题色渐变圆角方块 + 柔粉投影，齿轮 PNG 以白色 mask 呈现 */
+.brand-badge {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: linear-gradient(
+    135deg,
+    var(--el-color-primary),
+    var(--el-color-primary-dark-2)
+  );
+  box-shadow: 0 4px 10px rgba(231, 139, 175, 0.32);
 }
 
-.ai-btn-wrap button {
-  width: 56px;
-  height: 56px;
-  padding: 0;
-  border-radius: 9999px;
-  background: var(--accent);
+.brand-badge-ico {
+  width: 22px;
+  height: 22px;
   color: #fff;
 }
 
-.ai-btn-wrap button:hover:not(:disabled) {
-  filter: brightness(1.06);
-}
-
-.ai-btn-wrap button:active:not(:disabled) {
-  filter: brightness(0.94);
-}
-
-/* 菜单超出宽度时横向滚动（隐藏滚动条），否则居中 */
-.topmenu-scroll {
-  flex: 1;
+/* 中英文品牌名纵向排列，整体水平居中 */
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   min-width: 0;
-  height: 100%;
+}
+
+.brand-name-cn {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #1f2937;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* 英文副标：弱化显示，不抢主标风头 */
+.brand-name-en {
+  margin-top: 3px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 1.3px;
+  color: #8a93a3;
+  white-space: nowrap;
+}
+
+/* 11 个齿轮类型的大 radio-button 组，居于中列水平居中，宽度不足时横向滚动；
+   宽度 calc(100% - 12px) 并居中，使可视区域与 scene 卡片（scene-main 左右各 6px padding）严格等宽 */
+.header-types {
+  grid-column: 2;
+  justify-self: center;
+  min-width: 0;
+  width: calc(100% - 12px);
+  display: flex;
+  /* 放得下时居中；溢出时回退到起始位（配合 JS 滚到中间），保证两端可滚动到达 */
+  justify-content: safe center;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.topmenu-scroll::-webkit-scrollbar {
+.header-types .el-radio-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.header-types .el-radio-button {
+  flex-shrink: 0;
+}
+
+.header-types .el-radio-button__inner {
+  white-space: nowrap;
+}
+
+.header-types::-webkit-scrollbar {
   display: none;
 }
 
-/* ---------- 两侧栏 ---------- */
-.sidebar-left,
-.sidebar-right {
-  padding: 14px 24px 24px;
+.header-actions {
+  grid-column: 3;
+  justify-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* 左右内边距与 .aside-right 一致（左 8 / 右 14），按钮在内容盒中居中，
+     使其中心与下方工具卡片内容区的中心严格对齐 */
+  padding: 0 14px 0 8px;
+}
+
+/* AI 入口：大胶囊按钮 */
+.ai-capsule-btn {
+  height: 44px;
+  padding: 0 28px;
+  border: none;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  box-shadow: 0 6px 16px rgba(231, 139, 175, 0.4);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.ai-capsule-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(231, 139, 175, 0.5);
+}
+
+.ai-capsule-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(231, 139, 175, 0.4);
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- 左右侧栏 ---------- */
+.aside-left,
+.aside-right {
+  background: transparent;
+  padding: 0 8px 12px 14px;
+  overflow-y: auto;
+}
+
+.aside-right {
+  padding: 0 14px 12px 8px;
+}
+
+/* 左侧参数面板高度随内容自适应：不被 flex 拉伸占满整列，
+   内容超出可用高度时由 aside 自身滚动 */
+.aside-left {
+  align-self: flex-start;
+  max-height: 100%;
+}
+
+/* 右侧多个工具面板纵向排列 */
+.stack-panels {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
+  gap: 16px;
+}
+
+.stack-panels .el-card__header {
+  padding: 10px 14px;
+  font-weight: 600;
+}
+
+.stack-panels .el-card__body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 分段按钮使用更矮的控件高度 */
+.stack-panels .el-radio-button__inner {
+  padding: 6px 12px;
+}
+
+/* 模型统计表格单元格收紧，内容居中显示 */
+/* 选择器需补全到 .el-descriptions__body .el-descriptions__table 层级，
+   优先级才能覆盖 Element Plus 默认的 text-align: left */
+.stack-panels .el-descriptions__body .el-descriptions__table .el-descriptions__cell {
+  padding: 4px 8px;
+  text-align: center;
+}
+
+/* ---------- 卡片统一风格：白底 / 大圆角 / 柔影 / 无重描边 ---------- */
+.el-card {
+  border: none;
+  border-radius: var(--app-radius-card);
+  box-shadow: var(--app-shadow-card);
+}
+
+.el-card.is-never-shadow,
+.el-card.is-hover-shadow {
+  box-shadow: var(--app-shadow-card);
+}
+
+/* 弹窗与主界面卡片保持一致的圆角与柔影 */
+.el-dialog {
+  border-radius: var(--app-radius-card);
+  box-shadow: var(--app-shadow-float);
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  color: #344054;
+}
+
+.panel-title .el-icon {
+  color: var(--el-color-primary);
+  font-size: 16px;
+}
+
+/* ---------- 中央 Scene 面板 ---------- */
+.scene-main {
+  padding: 0 6px 12px;
+  background: transparent;
+  display: flex;
   min-width: 0;
 }
 
-.sidebar-left {
-  grid-area: left;
-}
-
-.sidebar-right {
-  grid-area: right;
-}
-
-/* ---------- 中央视口（凹陷面板） ---------- */
-.viewer-area {
-  grid-area: main;
+.scene-card.el-card {
   position: relative;
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* 凹陷底色，内阴影由 scene-wrap::after 直接覆盖在 canvas 上 */
+  background-color: #dce2ea;
+  border: none;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+/* 标题栏定位层：脱离文档流，水平居中悬浮于 scene 顶部 8px；
+   自身全透明、无底色阴影，视觉胶囊由内部 .scene-header-pill 承担，
+   使切换齿轮类型时整个胶囊（白底+标题+几何近似标签）可以一起渐入渐出，
+   header 脱离后 body 占满整张卡片，scene 视口从卡片顶部开始 */
+.scene-card > .el-card__header {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 7;
+  transform: translateX(-50%);
+  /* 两侧预留空间，避免胶囊与右上角俯视图圆形按钮重叠 */
+  max-width: calc(100% - 110px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-bottom: none;
+}
+
+/* 浮动白色胶囊：标题 + 几何近似标签，整体随 Transition 淡入淡出 */
+.scene-header-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 5px 8px 5px 16px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(110, 125, 150, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.scene-card > .el-card__body {
+  flex: 1;
   min-height: 0;
-  padding: 10px 24px 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scene-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* 内阴影直接覆盖在 canvas 上方，实现单层凹陷效果 */
+.scene-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  box-shadow: inset 4px 4px 8px rgba(140, 155, 178, 0.65),
+              inset -4px -4px 8px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  z-index: 5;
 }
 
 .gear-viewer {
   position: absolute;
-  inset: 14px;
-  border-radius: var(--neu-radius-lg);
-  overflow: hidden;
+  inset: 0;
 }
 
-/* 凹陷视口边缘：极淡内嵌阴影浮于 canvas 之上，不拦截鼠标
-   白色高光需压得很轻，否则顶部会聚成白雾边与 3D 场景脱节 */
-.viewer-area::after {
-  content: '';
+/* ---------- 视口浮层（Contextual Controls） ---------- */
+.scene-note {
   position: absolute;
-  inset: 14px;
-  border-radius: var(--neu-radius-lg);
+  left: 14px;
+  top: 14px;
+  z-index: 6;
+}
+
+.scene-tips {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  z-index: 6;
+  display: flex;
+  gap: 8px;
   pointer-events: none;
-  z-index: 4;
-  box-shadow:
-    inset var(--neu-d3) var(--neu-d3) var(--neu-b3) var(--shadow-dark),
-    inset var(--neu-d3-n) var(--neu-d3-n) var(--neu-b3) var(--shadow-light);
 }
 
-/* ---------- 面板文字 ---------- */
-.panel-title {
-  margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  color: var(--text-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.title-text {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.title-en {
-  font-size: 9px;
-  font-weight: 400;
-  color: var(--text-muted);
-  text-align: right;
-  white-space: nowrap;
-}
-
-/* 参数面板标题栏的「恢复默认」圆形按钮 */
-.panel-title button:hover {
-  color: var(--accent);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.field > label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 0 2px;
-}
-
-.field .unit {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.hint {
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.4;
-  padding: 0 2px;
-  text-align: center;
-}
-
-/* 滑块 + 数字输入并排 */
-.range-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.range-slider {
-  flex: 1;
-  min-width: 0;
-}
-
-/* NeuInput 在侧栏内收敛为紧凑尺寸（特异性高于组件库工具类） */
-.range-row .num-input {
-  width: 92px;
-  flex-shrink: 0;
-}
-
-.num-input input {
-  padding: 4px 8px !important;
-  font-size: 12px !important;
-  text-align: center;
-  font-family: var(--font);
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-.num-input input::-webkit-outer-spin-button,
-.num-input input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-/* 开关行 */
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--text-muted);
-  min-height: 40px;
-  margin-bottom: 10px;
-}
-
-/* ---------- 右侧控制面板 ---------- */
-.control-panel,
-.param-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.ctrl-section {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-/* 同一区块内连续纵向按钮之间额外加间距（如「视图」「导出」） */
-.ctrl-section > button + button {
-  margin-top: 10px;
-}
-
-/* 「视图」区块内，自动旋转按钮与上方透视/正交按钮行之间加大留白 */
-.ctrl-section > .btn-row + button {
-  margin-top: 14px;
-}
-
-.ctrl-label {
-  font-size: 13px;
-  color: var(--text-muted);
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  padding: 0 2px;
-}
-
-/* NeuButton 在区块内纵向全宽、分段时均分 */
-.ctrl-section > button {
-  width: 100%;
-}
-
-.btn-row {
-  display: flex;
-  gap: 8px;
-}
-
-.btn-row > button,
-.btn-row > .neu-button {
-  flex: 1;
-  min-width: 0;
-}
-
-.btn-row > .btn-col {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-}
-
-.btn-row > .btn-col > button {
-  width: 100%;
-}
-
-.stat-chip {
-  text-align: center;
-  font-size: 10px;
-  color: var(--text-muted);
-  padding: 9px 8px !important;
-  border-radius: var(--neu-radius-sm);
-}
-
-.stat-chip b {
-  color: var(--accent);
-  font-weight: 700;
+.scene-tips span {
   font-size: 12px;
+  color: #7a8494;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(150, 160, 175, 0.18);
+  padding: 3px 10px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(110, 125, 150, 0.1);
 }
 
-/* ---------- NeuButton 选中态阴影柔化 ----------
- * 组件库默认 shadow-neu-pressed（6px 偏移）在大圆角对角处，
- * 白色/暗色 inset 阴影会交汇裂成两个三角色块。
- * 仅覆盖 button 元素：不影响 NeuInput / NeuSwitch / NeuSlider / NeuCard 的凹陷。 */
-.app-shell button.shadow-neu-pressed {
-  box-shadow:
-    inset 2px 2px 7px var(--shadow-dark),
-    inset -2px -2px 7px var(--shadow-light);
-}
-
-/* ---------- 浮层 / 状态 ---------- */
-.overlay-tip {
+.export-mask {
   position: absolute;
-  left: 36px;
-  bottom: 26px;
-  display: flex;
-  gap: 8px;
-  font-size: 10px;
-  color: var(--text-muted);
-  pointer-events: none;
-  z-index: 6;
-}
-
-.overlay-tip span {
-  background: var(--bg-color);
-  padding: 5px 11px;
-  border-radius: 20px;
-  box-shadow:
-    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
-}
-
-.approx-note {
-  position: absolute;
-  left: 26px;
-  top: 26px;
-  font-size: 11px;
-  color: var(--warn);
-  background: var(--bg-color);
-  padding: 7px 13px;
-  border-radius: 20px;
-  z-index: 6;
-  box-shadow:
-    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
-}
-
-.topview-btn {
-  position: absolute;
-  right: 26px;
-  top: 26px;
-  z-index: 6;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: none;
-  background: var(--bg-color);
-  color: var(--text-color);
+  inset: 0;
+  z-index: 8;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  box-shadow:
-    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
-  transition: color 0.2s;
+  background: rgba(232, 237, 243, 0.55);
 }
 
-.topview-btn:hover {
-  color: var(--accent);
+.export-card {
+  width: 300px;
+  text-align: center;
 }
 
-/* 悬浮对话框（无遮罩，3D 场景保持可交互） */
-.busy-dialog {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 24px 36px;
-  border-radius: var(--neu-radius-md);
-  background: var(--bg-color);
-  /* 凹下区域：内嵌阴影包裹 loading 内容 */
-  box-shadow:
-    inset var(--neu-d2) var(--neu-d2) var(--neu-b2) var(--shadow-dark),
-    inset var(--neu-d2-n) var(--neu-d2-n) var(--neu-b2) var(--shadow-light);
-  pointer-events: auto;
-  z-index: 10;
-}
-
-.busy-text {
-  color: var(--text-color);
+.export-stage {
+  margin-top: 10px;
   font-size: 13px;
+  color: #606266;
 }
 
-.spinner {
+/* ---------- 右下角浮动：主题色切换 ---------- */
+/* 提高选择器优先级以覆盖 Element Plus .el-button.is-circle 的 width:32px，保持正圆 */
+.el-button.theme-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 100;
   width: 44px;
   height: 44px;
+  font-size: 19px;
+  color: #5b6472;
+  background: #fff;
+  border: none;
   border-radius: 50%;
-  border: 4px solid var(--bg-color);
-  box-shadow:
-    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light),
-    var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark);
-  border-top-color: var(--accent);
-  animation: spin 0.9s linear infinite;
+  box-shadow: var(--app-shadow-float);
+  transition: color 0.18s ease, transform 0.18s ease;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.theme-fab:hover {
+  color: var(--el-color-primary);
+  transform: translateY(-2px);
+  background: #fff;
 }
 
-.progress-track {
-  width: 240px;
-  height: 10px;
-  border-radius: 6px;
-  background: var(--bg-color);
-  overflow: hidden;
-  box-shadow:
-    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
+.theme-popover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #344054;
+  margin-bottom: 10px;
 }
 
-.progress-bar {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 6px;
-  transition: width 0.2s;
+.theme-swatches {
+  display: flex;
+  gap: 10px;
+}
+
+.theme-swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  outline: 1px solid rgba(150, 160, 175, 0.35);
+  cursor: pointer;
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.theme-swatch:hover {
+  transform: translateY(-1px);
+}
+
+.theme-swatch.is-active {
+  box-shadow: 0 0 0 2px var(--el-color-primary);
 }
 
 /* ---------- 滚动条 ---------- */
@@ -477,10 +506,10 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--shadow-dark);
+  background: #c4cdd9;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+  background: var(--el-color-primary);
 }

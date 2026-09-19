@@ -3,10 +3,7 @@
  * AI 齿轮生成对话框：自然语言 → 大模型 → 齿轮参数 → 重建模型
  */
 import { ref, watch } from 'vue'
-import { Sparkles, Settings2, LoaderCircle } from 'lucide-vue-next'
-import NeuModal from './neu/NeuModal.vue'
-import NeuButton from './neu/NeuButton.vue'
-import NeuSwitch from './neu/NeuSwitch.vue'
+import { MagicStick, Setting, Loading } from '@element-plus/icons-vue'
 import { useGearStore } from '../stores/gear'
 import { buildSystemPrompt, parseAiResponse, type AiGearResult } from '../ai/prompt'
 import { callLLM, loadAiSettings, saveAiSettings, type AiSettings } from '../ai/client'
@@ -82,302 +79,172 @@ async function generate() {
 </script>
 
 <template>
-  <NeuModal
+  <el-dialog
     :model-value="modelValue"
     title="AI 齿轮生成"
-    width="xl"
+    width="600px"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div class="ai-form">
-      <textarea
-        v-model="req"
-        class="ai-textarea"
-        rows="3"
-        placeholder="用自然语言描述你的需求，例：模数 2、齿数 24、齿宽 15 的直齿轮（Ctrl+Enter 直接生成）"
-        @keydown.enter.ctrl.prevent="generate"
-      ></textarea>
+    <el-input
+      v-model="req"
+      type="textarea"
+      :rows="3"
+      resize="none"
+      placeholder="用自然语言描述你的需求，例：模数 2、齿数 24、齿宽 15 的直齿轮（Ctrl+Enter 直接生成）"
+      @keydown.enter.ctrl.prevent="generate"
+    />
 
-      <div class="ai-examples">
-        <button v-for="ex in examples" :key="ex" class="ai-chip" @click="req = ex">{{ ex }}</button>
-      </div>
+    <div class="ai-examples">
+      <el-button
+        v-for="ex in examples"
+        :key="ex"
+        round
+        size="small"
+        @click="req = ex"
+      >
+        {{ ex }}
+      </el-button>
+    </div>
 
-      <div class="ai-settings">
-        <button class="ai-settings-toggle" @click="showSettings = !showSettings">
-          <Settings2 :size="14" />
-          <span>
-            模型设置：{{
-              settings.demo
-                ? '演示模式（本地解析）'
-                : settings.apiKey
-                  ? settings.model
-                  : '未配置 API Key（自动演示模式）'
-            }}
-          </span>
-        </button>
-        <div v-if="showSettings" class="ai-settings-body">
-          <label class="ai-field">
-            <span>接口地址</span>
-            <input v-model="settings.baseUrl" type="text" placeholder="https://api.deepseek.com" />
-          </label>
-          <label class="ai-field">
-            <span>模型名称</span>
-            <input v-model="settings.model" type="text" placeholder="deepseek-chat" />
-          </label>
-          <label class="ai-field">
-            <span>API Key</span>
-            <input v-model="settings.apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-          </label>
-          <label class="ai-demo">
-            <NeuSwitch :model-value="settings.demo" @update:model-value="settings.demo = $event" />
+    <div class="ai-settings">
+      <el-button text size="small" :icon="Setting" @click="showSettings = !showSettings">
+        模型设置：{{
+          settings.demo
+            ? '演示模式（本地解析）'
+            : settings.apiKey
+              ? settings.model
+              : '未配置 API Key（自动演示模式）'
+        }}
+      </el-button>
+
+      <el-collapse-transition>
+        <div v-show="showSettings" class="ai-settings-body">
+          <el-input v-model="settings.baseUrl" placeholder="https://api.deepseek.com" />
+          <el-input v-model="settings.model" placeholder="deepseek-chat" />
+          <el-input
+            v-model="settings.apiKey"
+            type="password"
+            show-password
+            placeholder="sk-..."
+            autocomplete="off"
+          />
+          <div class="ai-demo">
+            <el-switch v-model="settings.demo" />
             <span>演示模式（本地关键词解析，不调用 API）</span>
-          </label>
-          <p class="ai-hint">
-            API Key 仅保存在本机浏览器 localStorage，由浏览器直连所选服务；接口兼容 OpenAI /chat/completions
-            格式（DeepSeek / 通义千问 / Kimi 等）。
-          </p>
+          </div>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="API Key 仅保存在本机浏览器 localStorage，由浏览器直连所选服务；接口兼容 OpenAI /chat/completions 格式（DeepSeek / 通义千问 / Kimi 等）。"
+          />
         </div>
-      </div>
+      </el-collapse-transition>
+    </div>
 
-      <div v-if="calling" class="ai-status">
-        <LoaderCircle :size="16" class="ai-spin" />
-        <span>大模型思考中…</span>
-      </div>
-      <div v-if="errMsg" class="ai-error">{{ errMsg }}</div>
-      <div v-if="reply" class="ai-result">
-        <p class="ai-reply">{{ reply }}</p>
-        <ul v-if="applied.length" class="ai-applied">
-          <li v-for="(a, i) in applied" :key="i">
-            <span>{{ a.label }}</span>
-            <b>{{ a.value }}</b>
-          </li>
-        </ul>
-      </div>
+    <div v-if="calling" class="ai-status">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      <span>大模型思考中…</span>
+    </div>
+
+    <el-alert
+      v-if="errMsg"
+      class="ai-alert"
+      type="error"
+      show-icon
+      :title="errMsg"
+      :closable="false"
+    />
+
+    <div v-if="reply" class="ai-result">
+      <p class="ai-reply">{{ reply }}</p>
+      <el-descriptions
+        v-if="applied.length"
+        :column="2"
+        border
+        size="small"
+      >
+        <el-descriptions-item
+          v-for="(a, i) in applied"
+          :key="i"
+          :label="a.label"
+        >
+          {{ a.value }}
+        </el-descriptions-item>
+      </el-descriptions>
     </div>
 
     <template #footer>
-      <NeuButton variant="primary" :disabled="calling || !req.trim()" @click="generate">
-        <Sparkles :size="15" />
+      <el-button
+        type="primary"
+        :icon="MagicStick"
+        :loading="calling"
+        :disabled="!req.trim()"
+        @click="generate"
+      >
         {{ calling ? '生成中…' : '生成齿轮' }}
-      </NeuButton>
+      </el-button>
     </template>
-  </NeuModal>
+  </el-dialog>
 </template>
 
 <style scoped>
-.ai-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* 需求输入框：凹陷面板风格 */
-.ai-textarea {
-  width: 100%;
-  resize: none;
-  border: none;
-  outline: none;
-  padding: 10px 12px;
-  border-radius: var(--neu-radius-sm);
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.6;
-  user-select: text;
-  box-shadow:
-    inset var(--neu-d2) var(--neu-d2) var(--neu-b2) var(--shadow-dark),
-    inset var(--neu-d2-n) var(--neu-d2-n) var(--neu-b2) var(--shadow-light);
-}
-
-/* 示例提示词 */
 .ai-examples {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ai-chip {
-  border: none;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.75;
-  transition: all 0.2s ease;
-  box-shadow:
-    calc(var(--neu-d1) / 2) calc(var(--neu-d1) / 2) calc(var(--neu-b1) / 1.5) var(--shadow-dark),
-    calc(var(--neu-d1-n) / 2) calc(var(--neu-d1-n) / 2) calc(var(--neu-b1) / 1.5) var(--shadow-light);
-}
-
-.ai-chip:hover {
-  opacity: 1;
-}
-
-.ai-chip:active {
-  box-shadow:
-    inset calc(var(--neu-d1) / 2) calc(var(--neu-d1) / 2) calc(var(--neu-b1) / 1.5) var(--shadow-dark),
-    inset calc(var(--neu-d1-n) / 2) calc(var(--neu-d1-n) / 2) calc(var(--neu-b1) / 1.5) var(--shadow-light);
-}
-
-/* 模型设置折叠区 */
-.ai-settings {
-  border-radius: var(--neu-radius-sm);
-}
-
-.ai-settings-toggle {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-color);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.7;
-  padding: 2px 0;
-  cursor: pointer;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.ai-settings-toggle:hover {
-  opacity: 1;
+/* 重置 Element Plus 相邻按钮的默认 margin-left，避免与 gap 叠加导致间距不齐 */
+.ai-examples .el-button {
+  margin-left: 0;
+}
+
+.ai-settings {
+  margin-top: 12px;
 }
 
 .ai-settings-body {
   margin-top: 8px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
-  border-radius: var(--neu-radius-sm);
-  box-shadow:
-    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
-}
-
-.ai-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.ai-field > span {
-  flex: 0 0 64px;
-  text-align: right;
-  opacity: 0.8;
-}
-
-.ai-field > input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  padding: 6px 10px;
-  border-radius: var(--neu-radius-sm);
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  user-select: text;
-  box-shadow:
-    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
 }
 
 .ai-demo {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
+  font-size: 13px;
+  color: #606266;
 }
 
-.ai-hint {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.6;
-  opacity: 0.55;
-}
-
-/* 状态与结果 */
 .ai-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.75;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #606266;
 }
 
-.ai-spin {
-  animation: ai-rotate 1s linear infinite;
-}
-
-@keyframes ai-rotate {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.ai-error {
-  padding: 8px 12px;
-  border-radius: var(--neu-radius-sm);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--danger);
-  box-shadow:
-    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
+.ai-alert {
+  margin-top: 12px;
 }
 
 .ai-result {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: var(--neu-radius-sm);
-  box-shadow:
-    inset var(--neu-d1) var(--neu-d1) var(--neu-b1) var(--shadow-dark),
-    inset var(--neu-d1-n) var(--neu-d1-n) var(--neu-b1) var(--shadow-light);
+  margin-top: 12px;
 }
 
 .ai-reply {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
+  margin: 0 0 10px;
+  font-size: 13px;
   line-height: 1.6;
-}
-
-.ai-applied {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 4px 14px;
-}
-
-.ai-applied li {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-}
-
-.ai-applied li span {
-  opacity: 0.6;
-}
-
-.ai-applied li b {
-  font-weight: 600;
+  color: #303133;
 }
 </style>

@@ -11,7 +11,7 @@ import {
 } from '../gear/schema'
 import { buildGear, type ExtraValues, type Quality } from '../gear/geometry'
 import type { MeshData } from '../gear/mesh/MeshData'
-import { NeuToast } from '../components/neu/toast'
+import { ElMessage } from 'element-plus'
 import type { AiGearResult } from '../ai/prompt'
 
 const KNOWN_PARAM_IDS = new Set<string>(Object.keys(defaultParams))
@@ -164,7 +164,24 @@ export const useGearStore = defineStore('gear', {
     },
 
     setParam(id: string, value: string | number | boolean) {
-      if (KNOWN_PARAM_IDS.has(id)) {
+      if (id === 'standard') {
+        const newStandard = value as Standard
+        if (newStandard !== this.params.standard) {
+          if (newStandard === 'english') {
+            // 公制 → 英制：把当前模数(mm)换算为径节(DP = 25.4 / m)
+            if (this.params.module > 0) {
+              this.extra.pitch = Number((25.4 / this.params.module).toFixed(4))
+            }
+          } else {
+            // 英制 → 公制：把当前径节(DP)换算为模数(mm = 25.4 / DP)
+            const pitch = Number(this.extra.pitch)
+            if (pitch > 0) {
+              this.params.module = Number((25.4 / pitch).toFixed(4))
+            }
+          }
+          this.params.standard = newStandard
+        }
+      } else if (KNOWN_PARAM_IDS.has(id)) {
         ;(this.params as unknown as Record<string, unknown>)[id] = value
       } else {
         this.extra[id] = value
@@ -208,7 +225,7 @@ export const useGearStore = defineStore('gear', {
         types: this.typeValues
       })
       this.scheduleRebuild()
-      NeuToast.info('已恢复默认参数')
+      ElMessage.info('已恢复默认参数')
     },
 
     setQuality(q: Quality) {
@@ -229,11 +246,11 @@ export const useGearStore = defineStore('gear', {
           try {
             this.mesh = buildGear(this.type, this.params, this.extra, this.quality)
             if (this.mesh.triangleCount > 1_000_000) {
-              NeuToast.info(`面片数 ${this.mesh.triangleCount.toLocaleString()}，较多，可能影响性能`)
+              ElMessage.info(`面片数 ${this.mesh.triangleCount.toLocaleString()}，较多，可能影响性能`)
             }
           } catch (e) {
             console.error(e)
-            NeuToast.error(`几何生成失败：${(e as Error).message}`)
+            ElMessage.error(`几何生成失败：${(e as Error).message}`)
           } finally {
             this.building = false
             window.clearTimeout(slowTimer)

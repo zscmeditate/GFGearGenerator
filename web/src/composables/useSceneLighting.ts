@@ -32,6 +32,13 @@ export interface SceneLightingConfig {
   /** 主光位置 */
   keyPosition: [number, number, number]
 
+  /** 补光（Fill Light，主光对侧、中性色，保证旋转到背光面仍可见） */
+  fillColor: number
+  /** 补光强度 */
+  fillIntensity: number
+  /** 补光位置 */
+  fillPosition: [number, number, number]
+
   /** 轮廓光 1 颜色 */
   rim1Color: number
   /** 轮廓光 1 强度 */
@@ -59,40 +66,57 @@ export interface SceneLightingConfig {
   matMetalness: number
   /** 齿轮材质粗糙度 */
   matRoughness: number
+
+  /** ACES 色调映射曝光度（renderer.toneMappingExposure） */
+  toneMappingExposure: number
 }
 
-/* ─── 浅色主题预设（Classic Light） ─── */
+/* ─── 浅色主题预设（Light Industrial，规范 6/7/8 节） ─── */
 const LIGHT_PRESET: SceneLightingConfig = {
-  sceneBg:  0xe0e5ec,
+  sceneBg:  0xe7edf3, /* 规范 6：Viewport 底色比全局底再沉一阶 */
   fogNear:  400,
   fogFar:   1400,
 
+  /* 经典三点布光（key/fill/rim）+ 半球基底：
+     四盏方向光按方位角 ~50° / -60° / -145° / 140° 均匀环绕，
+     模型任意旋转角度都不会出现纯黑背光面；
+     彩色 rim 仅做边缘点缀，主/补光均为中性光以保真材质颜色。 */
   hemiSky:       0xffffff,
-  hemiGround:    0xc3ccda,
-  hemiIntensity: 1.35,
+  hemiGround:    0xdfe5ec,
+  hemiIntensity: 0.55,
 
   ambientColor:     0xffffff,
-  ambientIntensity: 0.25,
+  ambientIntensity: 0.15,
 
-  keyColor:      0xffffff,
-  keyIntensity:  1.5,
-  keyPosition:   [120, 160, 90],
+  keyColor:      0xfff7f0,
+  keyIntensity:  1.35,
+  keyPosition:   [140, 200, 120],
 
-  rim1Color:      0xe89db5,
+  fillColor:      0xeef4ff,
+  fillIntensity:  0.6,
+  fillPosition:   [-150, 100, 90],
+
+  rim1Color:      0xe78baf,
   rim1Intensity:  0.35,
-  rim1Position:   [-120, 40, -100],
+  rim1Position:   [-110, 130, -160],
 
-  rim2Color:      0x8fb8e8,
-  rim2Intensity:  0.3,
-  rim2Position:   [40, -80, 60],
+  rim2Color:      0x9fbfe8,
+  rim2Intensity:  0.35,
+  rim2Position:   [130, 80, -150],
 
-  gridColor1:  0xb6c0ce,
-  gridColor2:  0xd2d9e2,
-  gridOpacity: 0.4,
+  /* 规范 7：主网格 rgba(100,110,125,.20)、次网格 .10；
+     统一走 0.20 透明度，次网格用更浅的 RGB 获得同等低对比 */
+  gridColor1:  0x646e7d,
+  gridColor2:  0xa7afb9,
+  gridOpacity: 0.2,
 
-  matColor:      0xaeb9c8,
-  matMetalness:  0.18,
-  matRoughness:  0.62,
+  /* 规范 8：工业深灰 / 蓝灰，哑光无强反射 */
+  matColor:      0x7d8797,
+  matMetalness:  0.12,
+  matRoughness:  0.68,
+
+  /* ACES 电影级色调映射：压缩高光、抬升暗部，明暗过渡柔和无死黑 */
+  toneMappingExposure: 1.05,
 }
 
 /* ─── 深色主题预设（Dark） ─── */
@@ -101,24 +125,30 @@ const DARK_PRESET: SceneLightingConfig = {
   fogNear:  500,
   fogFar:   1600,
 
-  hemiSky:       0x6b7b8d,
-  hemiGround:    0x2a3040,
-  hemiIntensity: 1.1,
+  /* 同浅色主题的环绕三点布光；暗背景下补光略弱以保留夜景色差，
+     彩色轮廓光适度增强勾勒边缘 */
+  hemiSky:       0x8fa3b8,
+  hemiGround:    0x2c3340,
+  hemiIntensity: 0.55,
 
   ambientColor:     0xffffff,
-  ambientIntensity: 0.3,
+  ambientIntensity: 0.12,
 
-  keyColor:      0xffffff,
-  keyIntensity:  1.8,
-  keyPosition:   [120, 160, 90],
+  keyColor:      0xfff5ec,
+  keyIntensity:  1.5,
+  keyPosition:   [140, 200, 120],
+
+  fillColor:      0xdce8ff,
+  fillIntensity:  0.5,
+  fillPosition:   [-150, 100, 90],
 
   rim1Color:      0xffa5c0,
   rim1Intensity:  0.55,
-  rim1Position:   [-120, 40, -100],
+  rim1Position:   [-110, 130, -160],
 
   rim2Color:      0x7eaadf,
-  rim2Intensity:  0.45,
-  rim2Position:   [40, -80, 60],
+  rim2Intensity:  0.5,
+  rim2Position:   [130, 80, -150],
 
   gridColor1:  0x3a4049,
   gridColor2:  0x2d333a,
@@ -127,6 +157,8 @@ const DARK_PRESET: SceneLightingConfig = {
   matColor:      0xc8d0dc,
   matMetalness:  0.22,
   matRoughness:  0.50,
+
+  toneMappingExposure: 1.12,
 }
 
 /**

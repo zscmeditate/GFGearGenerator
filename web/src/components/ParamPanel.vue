@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RotateCcw } from 'lucide-vue-next'
+import { RefreshLeft } from '@element-plus/icons-vue'
 import { useGearStore } from '../stores/gear'
 import type { FieldDef } from '../gear/schema'
-import NeuButton from './neu/NeuButton.vue'
-import NeuInput from './neu/NeuInput.vue'
-import NeuSwitch from './neu/NeuSwitch.vue'
-import NeuSlider from './neu/NeuSlider.vue'
 
 const store = useGearStore()
 
@@ -36,10 +32,9 @@ function emitNumber(f: { id: string; measure: string }, displayVal: number) {
   store.setParam(f.id, f.measure === 'count' ? Math.round(v) : Number(v.toFixed(4)))
 }
 
-/** NeuInput 文本输入：拦截 NaN（如仅输入负号“-”时） */
-function onNumberText(f: Extract<FieldDef, { measure: string }> & { id: string }, text: string) {
-  const n = Number(text)
-  if (Number.isFinite(n)) emitNumber(f, n)
+/** el-input-number 清空时会给出 undefined，需守卫 */
+function onNumberInput(f: Extract<FieldDef, { measure: string }> & { id: string }, v: number | undefined) {
+  if (typeof v === 'number' && Number.isFinite(v)) emitNumber(f, v)
 }
 
 function unitOf(f: { measure: string }): string {
@@ -60,75 +55,222 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
 </script>
 
 <template>
-  <div class="param-panel">
-    <h3 class="panel-title">
-      <span class="title-text">
-        <span>{{ store.meta.name }} 参数</span>
-        <span class="title-en">{{ store.meta.en }}</span>
-      </span>
-      <NeuButton
-        variant="icon"
-        size="sm"
-        shape="circle"
-        title="恢复当前齿轮的默认参数"
-        @click="store.resetParams()"
-      >
-        <RotateCcw :size="14" />
-      </NeuButton>
-    </h3>
-
-    <template v-for="f in fields" :key="f.id">
-      <!-- 数值：滑块 + 数字输入 -->
-      <div v-if="!isChoice(f) && !isBool(f) && isVisible(f)" class="field">
-        <label>
-          <span>{{ f.label }}</span>
-          <span class="unit">{{ unitOf(f) }}</span>
-        </label>
-        <div class="range-row">
-          <NeuSlider
-            class="range-slider"
-            :min="f.min"
-            :max="f.max"
-            :step="f.step"
-            :model-value="displayNumber(f)"
-            @update:model-value="(v: number) => emitNumber(f, v)"
-          />
-          <NeuInput
-            type="number"
-            class="num-input"
-            :model-value="String(displayNumber(f))"
-            @update:model-value="(v: string) => onNumberText(f, v)"
-          />
+  <el-card class="param-card" shadow="never">
+    <template #header>
+      <div class="param-header">
+        <div class="param-titles">
+          <span class="param-name">{{ store.meta.name }} 参数</span>
+          <span class="param-en">{{ store.meta.en }}</span>
         </div>
-      </div>
-
-      <!-- 布尔开关 -->
-      <div v-else-if="isBool(f)" class="switch-row">
-        <span>{{ f.label }}</span>
-        <NeuSwitch
-          :model-value="Boolean(valueOf(f))"
-          @update:model-value="(v: boolean) => store.setParam(f.id, v)"
+        <el-button
+          circle
+          size="small"
+          :icon="RefreshLeft"
+          title="恢复当前齿轮的默认参数"
+          @click="store.resetParams()"
         />
       </div>
+    </template>
 
-      <!-- 分段选择 -->
-      <div v-else-if="isChoice(f)" class="field">
-        <label><span>{{ f.label }}</span></label>
-        <div class="btn-row">
-          <div v-for="opt in f.options" :key="opt.value" class="btn-col">
-            <NeuButton
-              size="sm"
-              :active="valueOf(f) === opt.value"
-              @click="store.setParam(f.id, opt.value)"
+    <el-form label-position="top" class="param-form">
+      <template v-for="f in fields" :key="f.id">
+        <!-- 数值：滑块 + 数字输入 -->
+        <el-form-item v-if="!isChoice(f) && !isBool(f) && isVisible(f)" class="param-item number-item">
+          <template #label>
+            <div class="field-label">
+              <span>{{ f.label }}</span>
+            </div>
+          </template>
+          <div class="range-row">
+            <el-slider
+              class="range-slider"
+              :min="f.min"
+              :max="f.max"
+              :step="f.step"
+              :model-value="displayNumber(f)"
+              @update:model-value="(v: number) => emitNumber(f, v)"
+            />
+            <el-input-number
+              class="num-input"
+              size="small"
+              :controls="false"
+              :min="f.min"
+              :max="f.max"
+              :step="f.step"
+              :precision="f.measure === 'count' ? 0 : undefined"
+              :model-value="displayNumber(f)"
+              @update:model-value="(v: number | undefined) => onNumberInput(f, v)"
+            />
+            <span class="field-unit">{{ unitOf(f) }}</span>
+          </div>
+        </el-form-item>
+
+        <!-- 布尔开关 -->
+        <el-form-item v-else-if="isBool(f)" class="param-item bool-item">
+          <span class="bool-label">{{ f.label }}</span>
+          <el-switch
+            :model-value="Boolean(valueOf(f))"
+            @update:model-value="(v: boolean) => store.setParam(f.id, v)"
+          />
+        </el-form-item>
+
+        <!-- 分段选择 -->
+        <el-form-item v-else-if="isChoice(f)" class="param-item choice-item">
+          <template #label>
+            <div class="field-label"><span>{{ f.label }}</span></div>
+          </template>
+          <el-radio-group
+            class="choice-group"
+            :model-value="valueOf(f)"
+            @update:model-value="(v: string | number | boolean) => store.setParam(f.id, v)"
+          >
+            <el-radio-button
+              v-for="opt in f.options"
+              :key="opt.value"
+              :value="opt.value"
             >
               {{ opt.label }}
-            </NeuButton>
-            <div v-if="opt.hint && valueOf(f) === opt.value" class="hint">
-              {{ opt.hint }}
-            </div>
+            </el-radio-button>
+          </el-radio-group>
+          <div v-if="f.options.find((o) => o.value === valueOf(f))?.hint" class="choice-hint">
+            {{ f.options.find((o) => o.value === valueOf(f))?.hint }}
           </div>
-        </div>
-      </div>
-    </template>
-  </div>
+        </el-form-item>
+      </template>
+    </el-form>
+  </el-card>
 </template>
+
+<style scoped>
+.param-card {
+  border: none;
+}
+
+.param-card :deep(.el-card__header) {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.param-card :deep(.el-card__body) {
+  padding: 16px 16px 16px 20px;
+}
+
+.param-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.param-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.param-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.param-en {
+  font-size: 11px;
+  color: #909399;
+}
+
+.param-form :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.param-form :deep(.el-form-item__label) {
+  padding-bottom: 2px;
+  line-height: 1.4;
+}
+
+/* 数值行（滑块+输入框+单位）的标题与控件更紧凑：覆盖 Element Plus label-top 默认的 8px 下外边距 */
+.number-item :deep(.el-form-item__label) {
+  margin-bottom: 2px;
+}
+
+.field-label {
+  font-size: 13px;
+  color: #606266;
+}
+
+.field-unit {
+  width: 40px;
+  box-sizing: border-box;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  padding: 2px 0;
+  border-radius: 10px;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.range-slider {
+  flex: 1;
+  min-width: 0;
+  /* 最小值时圆形滑块（直径20px）中心对齐轨道左端，会向左溢出 10px；
+     左侧补 12px 内边距，让圆点收进与标签/轨道对齐的左边界内 */
+  padding-left: 12px;
+}
+
+.num-input {
+  width: 52px;
+  flex-shrink: 0;
+}
+
+.bool-item :deep(.el-form-item__content) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bool-label {
+  font-size: 13px;
+  color: #606266;
+}
+
+/* 子类型按钮：两个选项上下垂直堆叠，按钮之间留出垂直间距 */
+/* align-items: center 使 80% 宽的按钮在组内水平居中 */
+.choice-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 覆盖 Element Plus 分段按钮相邻项的 -1px 重叠，按钮宽度为组宽的 80% */
+.choice-group :deep(.el-radio-button) {
+  width: 80%;
+  margin-left: 0;
+}
+
+/* 每个按钮独立整宽、独立圆角，去掉分段拼接用的左侧阴影 */
+.choice-group :deep(.el-radio-button__inner) {
+  width: 100%;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.choice-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #909399;
+  line-height: 1.4;
+}
+</style>

@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { useGearStore } from '../stores/gear'
 import { getSceneLightingForBg, type SceneLightingConfig } from '../composables/useSceneLighting'
-import { readThemePalette } from '../composables/useThemePalette'
+import matcapUrl from '../gear/geometry/313131_BBBBBB_878787_A3A4A4.png'
 
 const store = useGearStore()
 const containerEl = ref<HTMLDivElement | null>(null)
@@ -15,6 +15,16 @@ let camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
 let controls: OrbitControls
 let gearMesh: THREE.Mesh | null = null
 let gridHelper: THREE.GridHelper
+
+/* ─── MatCap 贴图（烘焙光照的灰度球体图，视图空间法线采样，不依赖场景灯光） ─── */
+let matcapTexture: THREE.Texture | null = null
+function getMatcapTexture(): THREE.Texture {
+  if (!matcapTexture) {
+    matcapTexture = new THREE.TextureLoader().load(matcapUrl)
+    matcapTexture.colorSpace = THREE.SRGBColorSpace
+  }
+  return matcapTexture
+}
 let keyLight: THREE.DirectionalLight
 let raf = 0
 let resizeObs: ResizeObserver
@@ -28,6 +38,7 @@ const cameraMode = ref<CameraMode>('perspective')
 /* ─── 场景灯光引用（用于主题切换时平滑过渡） ─── */
 let hemiLight: THREE.HemisphereLight
 let ambientLight: THREE.AmbientLight
+let fillLight: THREE.DirectionalLight
 let rimLight1: THREE.DirectionalLight
 let rimLight2: THREE.DirectionalLight
 
@@ -58,6 +69,30 @@ function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
 }
 
+/* ─── 网格颜色（规范 7：中心线主色、格线辅色，均低对比） ───
+ * GridHelper 材质默认 vertexColors，直接逐顶点写 color：
+ * 落在 x=0 / z=0 中心轴上的顶点用主色，其余格线用更浅的辅色。
+ * 仅视觉处理，不涉及几何/相机/业务。 */
+function applyGridColors(c1: number, c2: number, opacity: number) {
+  const geo = gridHelper.geometry as THREE.BufferGeometry
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute
+  const colors = new Float32Array(pos.count * 3)
+  const ca = new THREE.Color(c1)
+  const cb = new THREE.Color(c2)
+  for (let i = 0; i < pos.count; i++) {
+    const c = pos.getX(i) === 0 || pos.getZ(i) === 0 ? ca : cb
+    colors[i * 3] = c.r
+    colors[i * 3 + 1] = c.g
+    colors[i * 3 + 2] = c.b
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  const mat = gridHelper.material as THREE.LineBasicMaterial
+  mat.vertexColors = true
+  mat.color.setHex(0xffffff) /* 顶点色直显，不被材质色相乘压暗 */
+  mat.transparent = true
+  mat.opacity = opacity
+}
+
 function applyConfigInstant(cfg: SceneLightingConfig) {
   scene.background = new THREE.Color(cfg.sceneBg)
   scene.fog = new THREE.Fog(cfg.sceneBg, cfg.fogNear, cfg.fogFar)
@@ -73,6 +108,10 @@ function applyConfigInstant(cfg: SceneLightingConfig) {
   keyLight.intensity = cfg.keyIntensity
   keyLight.position.set(...cfg.keyPosition)
 
+  fillLight.color.setHex(cfg.fillColor)
+  fillLight.intensity = cfg.fillIntensity
+  fillLight.position.set(...cfg.fillPosition)
+
   rimLight1.color.setHex(cfg.rim1Color)
   rimLight1.intensity = cfg.rim1Intensity
   rimLight1.position.set(...cfg.rim1Position)
@@ -81,9 +120,9 @@ function applyConfigInstant(cfg: SceneLightingConfig) {
   rimLight2.intensity = cfg.rim2Intensity
   rimLight2.position.set(...cfg.rim2Position)
 
-  const mat1 = gridHelper.material as THREE.Material
-  ;(gridHelper as any).material.color.setHex(cfg.gridColor1)
-  mat1.opacity = cfg.gridOpacity
+  renderer.toneMappingExposure = cfg.toneMappingExposure
+
+  applyGridColors(cfg.gridColor1, cfg.gridColor2, cfg.gridOpacity)
 }
 
 function applyConfigLerp(from: SceneLightingConfig, to: SceneLightingConfig, progress: number) {
@@ -103,15 +142,21 @@ function applyConfigLerp(from: SceneLightingConfig, to: SceneLightingConfig, pro
   keyLight.color.setHex(lerpColor(from.keyColor, to.keyColor, t))
   keyLight.intensity = lerp(from.keyIntensity, to.keyIntensity, t)
 
+  fillLight.color.setHex(lerpColor(from.fillColor, to.fillColor, t))
+  fillLight.intensity = lerp(from.fillIntensity, to.fillIntensity, t)
+
   rimLight1.color.setHex(lerpColor(from.rim1Color, to.rim1Color, t))
   rimLight1.intensity = lerp(from.rim1Intensity, to.rim1Intensity, t)
   rimLight2.color.setHex(lerpColor(from.rim2Color, to.rim2Color, t))
   rimLight2.intensity = lerp(from.rim2Intensity, to.rim2Intensity, t)
 
-  const gridColor = lerpColor(from.gridColor1, to.gridColor1, t)
-  ;(gridHelper as any).material.color.setHex(gridColor)
-  const mat1 = gridHelper.material as THREE.Material
-  mat1.opacity = lerp(from.gridOpacity, to.gridOpacity, t)
+  renderer.toneMappingExposure = lerp(from.toneMappingExposure, to.toneMappingExposure, t)
+
+  applyGridColors(
+    lerpColor(from.gridColor1, to.gridColor1, t),
+    lerpColor(from.gridColor2, to.gridColor2, t),
+    lerp(from.gridOpacity, to.gridOpacity, t)
+  )
 }
 
 function transitionToConfig(target: SceneLightingConfig) {
@@ -154,15 +199,8 @@ function getCurrentBg(): string {
 }
 
 function onThemeChanged() {
-  const bg = getCurrentBg()
-  const cfg = getSceneLightingForBg(bg)
-  transitionToConfig(cfg)
-  if (gearMesh) {
-    const mat = gearMesh.material as THREE.MeshStandardMaterial
-    mat.color.setHex(cfg.matColor)
-    mat.metalness = cfg.matMetalness
-    mat.roughness = cfg.matRoughness
-  }
+  // MatCap 材质的明暗完全由贴图烘焙，主题切换仅过渡背景/灯光/网格
+  transitionToConfig(getSceneLightingForBg(getCurrentBg()))
 }
 
 /* ─── 正交相机辅助 ─── */
@@ -284,8 +322,7 @@ function initScene() {
 
   // 网格地面
   gridHelper = new THREE.GridHelper(2000, 80, currentSceneConfig.gridColor1, currentSceneConfig.gridColor2)
-  ;(gridHelper.material as THREE.Material).transparent = true
-  ;(gridHelper.material as THREE.Material).opacity = currentSceneConfig.gridOpacity
+  applyGridColors(currentSceneConfig.gridColor1, currentSceneConfig.gridColor2, currentSceneConfig.gridOpacity)
   gridHelper.position.y = -0.01
   scene.add(gridHelper)
 
@@ -333,11 +370,10 @@ function updateGear() {
     gearMesh.geometry.dispose()
     gearMesh.geometry = flat
   } else {
-    const cfg = currentSceneConfig ?? getSceneLightingForBg(getCurrentBg())
-    const mat = new THREE.MeshStandardMaterial({
-      color: cfg.matColor,
-      metalness: cfg.matMetalness,
-      roughness: cfg.matRoughness,
+    // MatCap 材质：以视图空间法线采样烘焙球贴图，明暗随相机角度变化，
+    // 贴图本身为中性灰阶，color 保持白色以忠实呈现贴图质感
+    const mat = new THREE.MeshMatcapMaterial({
+      matcap: getMatcapTexture(),
       flatShading: true,
       side: THREE.DoubleSide
     })
@@ -384,7 +420,7 @@ function fitView(geom: THREE.BufferGeometry) {
     ortho.top    =  frustum
     ortho.bottom = -frustum
     ortho.near   = 0.1
-    ortho.far    = radius * 40
+    ortho.far = radius * 40
     ortho.updateProjectionMatrix()
     const dir = new THREE.Vector3(0.75, 0.55, 0.9).normalize()
     camera.position.copy(dir.multiplyScalar(Math.max(radius * 3, 50)))
@@ -412,7 +448,7 @@ watch(
 watch(
   () => store.wireframe,
   (wf) => {
-    if (gearMesh) (gearMesh.material as THREE.MeshStandardMaterial).wireframe = wf
+    if (gearMesh) (gearMesh.material as THREE.MeshMatcapMaterial).wireframe = wf
   }
 )
 
@@ -431,6 +467,7 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(transitionRaf)
   bgObserver?.disconnect()
   resizeObs?.disconnect()
+  matcapTexture?.dispose()
   controls?.dispose()
   renderer?.dispose()
   renderer?.domElement.remove()
