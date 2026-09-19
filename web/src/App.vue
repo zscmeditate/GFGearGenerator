@@ -393,9 +393,11 @@ async function doExport(fmt: ExportFormat) {
 }
 
 /* ---------- Header 齿轮类型组：一个连续的分段控件（el-radio-button 原生结构美化） ---------- */
-/* 整组：浅灰蓝底圆角轨道，内部各项紧贴、无间隙，不做独立按钮；
+/* 整组：浅灰蓝底圆角轨道，内部各项以 1px 间隔条分隔（露出 #f1f4f8 轨道底色）；
    padding 归零以去掉组四周的轨道带，外加 1px 灰白边，首尾项圆角对齐边框内缘 */
 .gear-type-group {
+  display: inline-flex;
+  gap: 1px;
   padding: 0;
   background: #f1f4f8;
   border: 1px solid #dcdfe6;

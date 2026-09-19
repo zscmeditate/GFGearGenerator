@@ -198,9 +198,27 @@ function getCurrentBg(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim() || '#e0e5ec'
 }
 
+/** 读取当前主题色（--el-color-primary）并转为 THREE.Color */
+function getThemePrimaryColor(): THREE.Color {
+  const hex = getComputedStyle(document.documentElement).getPropertyValue('--el-color-primary').trim() || '#E78BAF'
+  return new THREE.Color(hex)
+}
+
+/* ─── MatCap 主题色融合 ───
+ * MeshMatcapMaterial 最终颜色 = 贴图灰阶 × material.color。
+ * color 直接取主题色会把暗部压成脏色，故在「白色 ↔ 主题色」间按
+ * MATCAP_TINT_STRENGTH 混合：0=纯灰阶贴图，1=完全主题色 */
+const MATCAP_TINT_STRENGTH = 0.55
+const MATCAP_WHITE = new THREE.Color(0xffffff)
+
+function applyMatcapTint(mat: THREE.MeshMatcapMaterial) {
+  mat.color.lerpColors(MATCAP_WHITE, getThemePrimaryColor(), MATCAP_TINT_STRENGTH)
+}
+
 function onThemeChanged() {
-  // MatCap 材质的明暗完全由贴图烘焙，主题切换仅过渡背景/灯光/网格
+  // MatCap 明暗由贴图烘焙；背景/灯光/网格平滑过渡，齿轮染色即时跟随主题色
   transitionToConfig(getSceneLightingForBg(getCurrentBg()))
+  if (gearMesh) applyMatcapTint(gearMesh.material as THREE.MeshMatcapMaterial)
 }
 
 /* ─── 正交相机辅助 ─── */
@@ -312,6 +330,10 @@ function initScene() {
   scene.add(keyLight)
   scene.add(keyLight.target)
 
+  fillLight = new THREE.DirectionalLight(currentSceneConfig.fillColor, currentSceneConfig.fillIntensity)
+  fillLight.position.set(...currentSceneConfig.fillPosition)
+  scene.add(fillLight)
+
   rimLight1 = new THREE.DirectionalLight(currentSceneConfig.rim1Color, currentSceneConfig.rim1Intensity)
   rimLight1.position.set(...currentSceneConfig.rim1Position)
   scene.add(rimLight1)
@@ -370,13 +392,14 @@ function updateGear() {
     gearMesh.geometry.dispose()
     gearMesh.geometry = flat
   } else {
-    // MatCap 材质：以视图空间法线采样烘焙球贴图，明暗随相机角度变化，
-    // 贴图本身为中性灰阶，color 保持白色以忠实呈现贴图质感
+    // MatCap 材质：以视图空间法线采样烘焙球贴图，明暗随相机角度变化；
+    // color 在白色与主题色之间混合，保留灰阶层次的同时融入主题色调
     const mat = new THREE.MeshMatcapMaterial({
       matcap: getMatcapTexture(),
       flatShading: true,
       side: THREE.DoubleSide
     })
+    applyMatcapTint(mat)
     gearMesh = new THREE.Mesh(flat, mat)
     gearMesh.castShadow = true
     gearMesh.receiveShadow = true
@@ -448,7 +471,8 @@ watch(
 watch(
   () => store.wireframe,
   (wf) => {
-    if (gearMesh) (gearMesh.material as THREE.MeshMatcapMaterial).wireframe = wf
+    // Material 运行时支持 wireframe，但 @types/three 的 MeshMatcapMaterial 未声明
+    if (gearMesh) (gearMesh.material as THREE.Material & { wireframe: boolean }).wireframe = wf
   }
 )
 
