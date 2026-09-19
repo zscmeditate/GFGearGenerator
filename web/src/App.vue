@@ -666,7 +666,7 @@ async function doExport(fmt: ExportFormat) {
   font-size: 16px;
 }
 
-/* ---------- 左下角版本号：与左上角 brand 同款新拟态凹陷风格，一行字高 ---------- */
+/* ---------- 左下角版本号：扁平化风格（纯色底 + 细边框，无凹陷阴影） ---------- */
 .app-version {
   position: fixed;
   left: 14px;
@@ -677,11 +677,9 @@ async function doExport(fmt: ExportFormat) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #e0e6ed;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(150, 160, 175, 0.28);
   border-radius: 10px;
-  /* 与 .app-brand 一致的新拟态凹陷：左上内阴影（暗）+ 右下内阴影（亮） */
-  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
-              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
