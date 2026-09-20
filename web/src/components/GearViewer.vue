@@ -252,7 +252,7 @@ function createOrthoCamera(w: number, h: number, src?: THREE.PerspectiveCamera):
   const cam = new THREE.OrthographicCamera(
     -frustum * aspect, frustum * aspect,
     frustum, -frustum,
-    0.1, 5000
+    0, 5000
   )
   if (src) {
     cam.position.copy(src.position)
@@ -368,6 +368,7 @@ function initScene() {
 
   // 网格地面
   gridHelper = new THREE.GridHelper(2000, 80, currentSceneConfig.gridColor1, currentSceneConfig.gridColor2)
+  gridHelper.frustumCulled = false
   applyGridColors(currentSceneConfig.gridColor1, currentSceneConfig.gridColor2, currentSceneConfig.gridOpacity)
   gridHelper.position.y = -0.01
   scene.add(gridHelper)
@@ -437,7 +438,7 @@ function computeView(geom: THREE.BufferGeometry): CameraView {
   const dir = new THREE.Vector3(0.75, 0.55, 0.9).normalize()
   const v: CameraView = {
     position: new THREE.Vector3(),
-    near: 0.1,
+    near: 0,
     far: radius * 40,
     ortho: null,
     shadowR: Math.max(radius * 1.5, 10),

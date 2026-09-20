@@ -133,6 +133,7 @@ function ensureScene(): boolean {
     scene.add(group)
 
     grid = new THREE.GridHelper(6000, 60, 0xc5cedb, 0xd9e0ea)
+    grid.frustumCulled = false
     scene.add(grid)
 
     fitView()

@@ -157,7 +157,7 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
 }
 
 .param-card :deep(.el-card__body) {
-  padding: 16px 16px 16px 20px;
+  padding: 16px 16px 16px 12px;
 }
 
 .param-header {
@@ -258,6 +258,8 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
   /* 最小值时圆形滑块（直径20px）中心对齐轨道左端，会向左溢出 10px；
      左侧补 12px 内边距，让圆点收进与标签/轨道对齐的左边界内 */
   padding-left: 12px;
+  /* 最大值时滑块同样向右溢出 10px，右侧补 10px 避免与数字输入框重叠 */
+  padding-right: 10px;
 }
 
 .num-input {

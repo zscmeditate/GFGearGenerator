@@ -99,7 +99,7 @@ const modelLineText = () => {
 <template>
   <el-dialog
     :model-value="modelValue"
-    width="90%"
+    width="60%"
     destroy-on-close
     class="ai-chat-dialog"
     @update:model-value="emit('update:modelValue', $event)"

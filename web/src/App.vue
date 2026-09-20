@@ -231,6 +231,7 @@ async function doExport(fmt: ExportFormat) {
       <!-- 左侧：带 header 的参数面板 -->
       <el-aside width="300px" class="aside-left">
         <ParamPanel />
+        <div class="version-badge">v1.0.0</div>
       </el-aside>
 
       <!-- 中央：Scene 面板 -->
@@ -660,5 +661,23 @@ async function doExport(fmt: ExportFormat) {
 
 .top-view-fab :deep(.el-icon) {
   font-size: 16px;
+}
+
+/* ---------- 左侧栏底部：版本号 ---------- */
+.version-badge {
+  margin-top: auto;
+  align-self: center;
+  width: 60%;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #8a93a3;
+  text-align: center;
+  background-color: #e0e6ed;
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.55),
+              inset -2px -2px 4px rgba(255, 255, 255, 0.85);
+  user-select: none;
 }
 </style>

@@ -87,13 +87,16 @@ export const defaultParams: GearParams = {
   wormHobbed: false
 }
 
-const moduleField = (): NumberField => ({ id: 'module', label: '模数 Module', min: 0.4, max: 75, step: 0.05, measure: 'mm', default: 3 })
-const pitchField = (): NumberField => ({ id: 'pitch', label: '径节 Pitch [DP]', min: 0.34, max: 63.5, step: 0.1, measure: 'dp', default: 0 })
-const zField = (): NumberField => ({ id: 'z', label: '齿数 Teeth', min: 6, max: 250, step: 1, integer: true, measure: 'count', default: 17 })
-const heightField = (label = '齿宽 Gear height'): NumberField => ({ id: 'gearHeight', label, min: 0.5, max: 500, step: 0.5, measure: 'mm', default: 10 })
+// 上限按工业合理范围 + 算法稳定性设定，避免极端值导致几何畸变或面片爆炸
+const moduleField = (): NumberField => ({ id: 'module', label: '模数 Module', min: 0.4, max: 25, step: 0.05, measure: 'mm', default: 3 })
+// 径节与模数配套：DP = 25.4/m，故 DP min 对应 m max（25.4/25≈1.016）
+const pitchField = (): NumberField => ({ id: 'pitch', label: '径节 Pitch [DP]', min: 1.0, max: 63.5, step: 0.1, measure: 'dp', default: 0 })
+const zField = (): NumberField => ({ id: 'z', label: '齿数 Teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 })
+const heightField = (label = '齿宽 Gear height'): NumberField => ({ id: 'gearHeight', label, min: 0.5, max: 150, step: 0.5, measure: 'mm', default: 10 })
 const paField = (): NumberField => ({ id: 'pressureAngle', label: '压力角 Pressure angle', min: 14.5, max: 30, step: 0.5, measure: 'deg', default: 20 })
-const radialField = (): NumberField => ({ id: 'radialThickness', label: '径向厚度 Radial thickness', min: 0.5, max: 200, step: 0.5, measure: 'mm', default: 5 })
-const helixField = (): NumberField => ({ id: 'helixAngle', label: '螺旋角 Helix angle', min: 0, max: 89, step: 0.5, measure: 'deg', default: 15 })
+const radialField = (): NumberField => ({ id: 'radialThickness', label: '径向厚度 Radial thickness', min: 0.5, max: 50, step: 0.5, measure: 'mm', default: 5 })
+// 螺旋角过大时 tan(β) 爆炸导致扭转分层数达上限，工业斜齿一般 ≤45°
+const helixField = (): NumberField => ({ id: 'helixAngle', label: '螺旋角 Helix angle', min: 0, max: 60, step: 0.5, measure: 'deg', default: 15 })
 const fastField = (): BoolField => ({ id: 'fastCompute', label: '快速计算 Fast Compute', default: true })
 
 const helicalSystemField = (): ChoiceField => ({
@@ -134,8 +137,8 @@ export const gearTypes: GearTypeMeta[] = [
     type: GearType.Bevel, name: '90° 锥齿轮对', en: 'Bevel Gears', icon: 'Conicos', group: 0, approx: true,
     fields: [
       moduleField(), pitchField(),
-      { id: 'z', label: '大轮齿数 Wheel teeth', min: 6, max: 250, step: 1, integer: true, measure: 'count', default: 17 },
-      { id: 'zPinion', label: '小轮齿数 Pinion teeth', min: 6, max: 250, step: 1, integer: true, measure: 'count', default: 17 },
+      { id: 'z', label: '大轮齿数 Wheel teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 },
+      { id: 'zPinion', label: '小轮齿数 Pinion teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 },
       paField()
     ]
   },
@@ -151,11 +154,11 @@ export const gearTypes: GearTypeMeta[] = [
       },
       helicalSystemField(),
       moduleField(), pitchField(),
-      { id: 'z', label: '齿数 Teeth', min: 6, max: 250, step: 1, integer: true, measure: 'count', default: 17 },
-      { id: 'rackThickness', label: '厚度 Thickness', min: 0.5, max: 500, step: 0.5, measure: 'mm', default: 10 },
+      { id: 'z', label: '齿数 Teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 },
+      { id: 'rackThickness', label: '厚度 Thickness', min: 0.5, max: 150, step: 0.5, measure: 'mm', default: 10 },
       paField(),
       helixField(),
-      { id: 'rackHeight', label: '高度 Rack height', min: 0.5, max: 500, step: 0.5, measure: 'mm', default: 10 }
+      { id: 'rackHeight', label: '高度 Rack height', min: 0.5, max: 150, step: 0.5, measure: 'mm', default: 10 }
     ]
   },
   {
@@ -170,10 +173,10 @@ export const gearTypes: GearTypeMeta[] = [
       },
       { id: 'leftThreaded', label: '左旋 Left threaded', default: false },
       moduleField(), pitchField(), zField(),
-      { id: 'wormLength', label: '蜗杆长度 Worm length', min: 5, max: 1000, step: 1, measure: 'mm', default: 40 },
-      { id: 'gearHeight', label: '蜗轮厚度 Worm gear height', min: 1, max: 300, step: 0.5, measure: 'mm', default: 12 },
+      { id: 'wormLength', label: '蜗杆长度 Worm length', min: 5, max: 200, step: 1, measure: 'mm', default: 40 },
+      { id: 'gearHeight', label: '蜗轮厚度 Worm gear height', min: 1, max: 150, step: 0.5, measure: 'mm', default: 12 },
       paField(),
-      { id: 'wormDriveRadius', label: '蜗杆分度圆半径 Drive radius', min: 1, max: 300, step: 0.5, measure: 'mm', default: 5 }
+      { id: 'wormDriveRadius', label: '蜗杆分度圆半径 Drive radius', min: 1, max: 50, step: 0.5, measure: 'mm', default: 5 }
     ]
   },
   {

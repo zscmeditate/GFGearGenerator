@@ -233,7 +233,8 @@ body {
 /* 左侧参数面板高度随内容自适应：不被 flex 拉伸占满整列，
    内容超出可用高度时由 aside 自身滚动 */
 .aside-left {
-  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
   max-height: 100%;
 }
 
