@@ -129,7 +129,9 @@ export function helixTwist(spec: InvoluteSpec, helixAngle: number, height: numbe
 export const uAtRadius = (rb: number, r: number) => (r > rb ? Math.sqrt((r / rb) ** 2 - 1) : 0)
 
 /**
- * 外齿轮齿厚半角（弧度，相对齿中心线）。
+ * 外齿轮齿厚半角（弧度，相对齿中心线）。ISO 53 / DIN 3960：
+ *   s/2 / r = π/(2z) + 2·X·tan(αt)/z + inv(αt) - inv(αr)
+ * 其中 αt 为端面压力角，αr = acos(rb/r) 为半径 r 处压力角。
  * 对应原 sigmaPS(rt,rb,ap,X)/2。
  */
 export function externalHalfThickness(spec: InvoluteSpec, r: number): number {
@@ -139,12 +141,21 @@ export function externalHalfThickness(spec: InvoluteSpec, r: number): number {
 }
 
 /**
- * 内齿轮齿厚半角（内齿用减号）。
+ * 内齿轮齿厚半角（弧度，相对齿中心线）。ISO 53 / DIN 3960：
+ *   s/2 / r = π/(2z) - 2·X·tan(αt)/z - inv(αt) + inv(αr)
+ *
+ * 与外齿轮相比，inv 项反号（内齿材料位于渐开线背离基圆的一侧）；
+ * 变位项亦反号——按 ISO 53 内齿轮变位系数 x2 的定义：
+ *   x2 > 0 → 刀具（齿数插齿刀）远离内齿中心 → 内齿变薄。
+ * 这与外齿轮「x1 > 0 → 齿变厚」相反，是国际标准对内齿的统一约定。
+ *
+ * 注：r < rb 时 acos(rb/r) 无定义，clamp 到 1 → αr=0 → inv(αr)=0，
+ * 此时返回基圆齿厚半角 halfBase，用于齿顶落入基圆内的径向线段。
  */
 export function internalHalfThickness(spec: InvoluteSpec, r: number): number {
-  const { rb, apt, z } = spec
+  const { rb, apt, z, X } = spec
   const at = Math.acos(Math.min(1, rb / r))
-  return Math.PI / (2 * z) - inv(apt) + inv(at)
+  return Math.PI / (2 * z) - (2 * X * Math.tan(apt)) / z - inv(apt) + inv(at)
 }
 
 export type Vec2 = [number, number]
@@ -260,8 +271,21 @@ function appendArc(ring: Vec2[], r: number, a0: number, a1: number, seg: number,
 }
 
 /**
- * 内齿轮带齿内孔边界（返回 CCW 点列；用于 earcut 孔时需反转为 CW）。
- * 齿顶向内 rTipIn=rp-m，齿间在外 rGap=rp+1.25m。
+ * 标准内齿轮带齿内孔边界（返回 CCW 点列；用作 earcut 孔时由调用方反转为 CW）。
+ *
+ * 按 ISO 53 / DIN 3960 重新实现，纠正原 GFGearGenerator.py `coronastd` 的错误：
+ *   原版把外齿轮的 df/da（rp-1.25m / rp+m）直接当作内齿的齿顶/齿根，
+ *   导致与同齿数小齿轮啮合时径向顶隙为 0（齿顶/齿根同时干涉）。
+ *
+ * ISO 53 内齿轮径向尺寸（X=0 标准齿，齿顶朝心、齿根朝外）：
+ *   齿顶圆 da2 = d2 - 2·m           → rTip  = rp - m        （最靠近中心）
+ *   齿根圆 df2 = d2 + 2·(m + c)     → rRoot = rp + 1.25m    （最远离中心，c=0.25m 顶隙）
+ * 与同模数同齿数小齿轮（齿顶 rp+m、齿根 rp-1.25m）同心啮合时，两侧径向顶隙均为 0.25m。
+ *
+ * 齿廓构成（每齿，CCW）：
+ *   左齿面（齿根→齿顶，渐开线）→ [可选径向线] → 齿顶弧 → [可选径向线] → 右齿面（齿顶→齿根）→ 齿根弧（至下一齿）
+ * 内齿渐开线随 r 增大而向齿中心线收拢（半角随 r 增大而增大 → 齿根宽、齿顶窄），
+ * 与外齿轮的「半角随 r 增大而减小」相反，详见 internalHalfThickness。
  */
 export function internalToothRing(
   spec: InvoluteSpec,
@@ -269,27 +293,28 @@ export function internalToothRing(
   cx = 0,
   cy = 0
 ): Vec2[] {
-  const { z, rb, rp, m, apt } = spec
+  const { z, rb, rp, m, apt, X } = spec
   const pitch = TAU / z
 
-  // 内齿轮径向尺寸：齿顶朝向圆心、齿根朝外（与外齿轮 da/df 关系相反）
+  // ISO 53 径向尺寸（X=0 标准齿；非标准内齿轮走 nonStandardInternalHole 路径，不在此处理 X）
   const rTip = rp - m         // 内齿顶（最靠近中心）
   const rRoot = rp + 1.25 * m // 内齿根 / 齿间（最远离中心）
 
-  // 齿顶落入基圆以内时，齿顶段用径向线补齐（相当于外齿轮的根切）
+  // 齿顶落入基圆以内：渐开线在基圆内不存在，齿顶段以基圆半角做径向线补齐
+  // （理论内齿该段应为插齿刀齿顶圆角包络的类摆线，工程上常用径向线近似）
   const radialAtTip = rTip < rb
   const rFlankStart = Math.max(rTip, rb)
 
-  // 渐开线滚动参数：从齿顶侧（内）到齿根侧（外）
+  // 渐开线滚动参数 u 与半径 r=rb·√(1+u²) 一一对应；u0 在齿顶侧（内）、u1 在齿根侧（外）
   const u0 = uAtRadius(rb, rFlankStart)
   const u1 = uAtRadius(rb, rRoot)
   const us = linspace(u0, u1, b.flank + 1)
 
-  // 内齿齿厚半角随半径增大而增宽（齿根宽、齿顶窄）
+  // 半角随 u（即随 r）增大而增大：齿顶窄、齿根宽
   const half = (u: number) =>
     internalHalfThickness(spec, rb * Math.sqrt(1 + u * u))
-  // 基圆处齿厚半角：径向线的角度基准
-  const halfBase = Math.PI / (2 * z) - inv(apt)
+  // 基圆处半角：r=rb 时 αr=acos(1)=0 → inv(αr)=0，等价于 internalHalfThickness(spec, rb)
+  const halfBase = Math.PI / (2 * z) - (2 * X * Math.tan(apt)) / z - inv(apt)
   const halfTip = radialAtTip ? halfBase : half(u0)
   const halfRoot = half(u1)
 
@@ -303,23 +328,24 @@ export function internalToothRing(
   for (let k = 0; k < z; k++) {
     const c = k * pitch
 
-    // 左齿面：齿根 → 齿顶（半径由外向内递增的角坐标）
+    // 左齿面：齿根 → 齿顶（u 由 u1 减到 u0，r 由大减到小，角坐标 c-half(u) 随之增大 → CCW）
     for (let i = us.length - 1; i >= 0; i--) {
       const u = us[i]
       ring.push(P(rb * Math.sqrt(1 + u * u), c - half(u)))
     }
+    // 径向线：基圆→齿顶（同角 halfBase，仅在齿顶落入基圆内时）
     if (radialAtTip) ring.push(P(rTip, c - halfBase))
 
-    // 齿顶弧（内圆 rTip）
+    // 齿顶弧（内圆 rTip，由 -halfTip 至 +halfTip，CCW）
     appendArc(ring, rTip, c - halfTip, c + halfTip, b.tipArc, cx, cy)
 
-    // 右齿面：齿顶 → 齿根
     if (radialAtTip) ring.push(P(rTip, c + halfBase))
+    // 右齿面：齿顶 → 齿根（u 由 u0 增到 u1，r 由小增到大，角坐标 c+half(u) 增大 → CCW）
     for (const u of us) {
       ring.push(P(rb * Math.sqrt(1 + u * u), c + half(u)))
     }
 
-    // 齿根弧（齿间，外圆 rRoot）
+    // 齿根弧（齿间，外圆 rRoot，由 +halfRoot 至下一齿 -halfRoot，CCW）
     appendArc(
       ring,
       rRoot,
