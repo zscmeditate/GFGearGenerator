@@ -10,6 +10,7 @@
  *   最久未显示的画布，回收前截屏为静态图兜底展示，滚回视野时再重建。
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { RefreshRight } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { buildGear } from '../gear/geometry'
@@ -217,6 +218,19 @@ function stopLoop() {
   }
 }
 
+/** 手动重新装配：重新调用装配求解器重建位姿（不调整相机视角），含画布被 LRU 回收后的重建 */
+function reassemble() {
+  const hadScene = !!renderer
+  if (!ensureScene()) return
+  if (hadScene && group) {
+    scene.remove(group)
+    group = buildAssemblyGroup()
+    scene.add(group)
+  }
+  stillUrl.value = ''
+  if (!raf) loop()
+}
+
 /** 释放渲染上下文；回收（非卸载）时定格当前帧为静态图兜底 */
 function disposeScene() {
   stopLoop()
@@ -289,6 +303,9 @@ onBeforeUnmount(() => {
   <div ref="wrapEl" class="ai-gear-canvas">
     <img v-if="stillUrl" class="still" :src="stillUrl" alt="齿轮组预览（渲染已暂停）" />
     <div v-if="failed" class="failed">齿轮装配渲染失败</div>
+    <button v-if="!failed" class="reassemble-btn" title="重新装配" @click="reassemble">
+      <el-icon><RefreshRight /></el-icon>
+    </button>
   </div>
 </template>
 
@@ -303,6 +320,30 @@ onBeforeUnmount(() => {
 
 .ai-gear-canvas :deep(canvas) {
   display: block;
+}
+
+.reassemble-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #5d6c85;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 5px rgba(90, 104, 128, 0.25);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.reassemble-btn:hover {
+  color: var(--el-color-primary);
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .still {

@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, watch, ref, computed } from 'vue'
+import { Bottom, RefreshRight, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { useGearStore } from '../stores/gear'
 import { getSceneLightingForBg, type SceneLightingConfig } from '../composables/useSceneLighting'
 import { applyMatcapTint, getMatcapTexture } from '../composables/useMatcap'
 import { buildFlatGeometry } from '../gear/mesh/flatGeometry'
+import { buildGear } from '../gear/geometry'
+import type { MeshData } from '../gear/mesh/MeshData'
+import { solveAssembly, type PlacedGear } from '../ai/assembly'
+import { snapshotToParamsExtra, type AiAssemblySnapshot, type AssemblyGearSnap } from '../ai/session'
 
 const store = useGearStore()
+
+/* ─── 装配模式：传入 assembly 快照时渲染多齿轮（复用本组件的渲染/视角能力） ─── */
+const props = defineProps<{ assembly?: AiAssemblySnapshot | null }>()
+const isAssembly = computed(() => !!props.assembly)
+
 const containerEl = ref<HTMLDivElement | null>(null)
 
 let renderer: THREE.WebGLRenderer
@@ -16,6 +26,10 @@ let camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
 let controls: OrbitControls
 let gearMesh: THREE.Mesh | null = null
 let gridHelper: THREE.GridHelper
+
+/* 装配模式：多齿轮组 + 共享 MatCap 材质 */
+let assemblyGroup: THREE.Group | null = null
+let assemblyMaterial: THREE.MeshMatcapMaterial | null = null
 
 /* ─── 灯光引用（主题切换时平滑过渡） ─── */
 let keyLight: THREE.DirectionalLight
@@ -367,7 +381,7 @@ function initScene() {
   scene.add(rimLight2)
 
   // 网格地面
-  gridHelper = new THREE.GridHelper(2000, 80, currentSceneConfig.gridColor1, currentSceneConfig.gridColor2)
+  gridHelper = new THREE.GridHelper(1000, 100, currentSceneConfig.gridColor1, currentSceneConfig.gridColor2)
   gridHelper.frustumCulled = false
   applyGridColors(currentSceneConfig.gridColor1, currentSceneConfig.gridColor2, currentSceneConfig.gridOpacity)
   gridHelper.position.y = -0.01
@@ -398,7 +412,7 @@ function animate() {
   raf = requestAnimationFrame(animate)
   // 相机取景插值的 200ms 内关闭自动旋转（OrbitControls 每帧从 camera.position
   // 反算内部球坐标，我们每帧直接写位置，不会与用户手动轨道冲突）
-  controls.autoRotate = switchPhase === 'idle' && store.autoRotate
+  controls.autoRotate = isAssembly.value ? true : switchPhase === 'idle' && store.autoRotate
   controls.update()
   renderer.render(scene, camera)
 
@@ -510,6 +524,84 @@ function createGearMaterial(): THREE.MeshMatcapMaterial {
   // 新材质要承接当前线框状态（旧实现复用同一材质所以天然保留）
   ;(mat as unknown as THREE.Material & { wireframe: boolean }).wireframe = store.wireframe
   return mat
+}
+
+/* ─── 装配模式：多齿轮几何构建 / 取景 / 重装配 ─── */
+
+function buildAssemblyGeometry(snap: AssemblyGearSnap): THREE.BufferGeometry {
+  const { params, extra } = snapshotToParamsExtra(snap)
+  const data: MeshData = buildGear(snap.type, params, extra, 'preview')
+  const geo = buildFlatGeometry(data.positions, data.indices)
+  geo.computeBoundingBox()
+  return geo
+}
+
+function buildAssemblyGroup(): THREE.Group {
+  const asm = props.assembly!
+  const placed: Map<string, PlacedGear> = new Map(solveAssembly(asm).map((p) => [p.id, p]))
+  const root = new THREE.Group()
+  for (const g of asm.gears) {
+    const p = placed.get(g.id)
+    if (!p) continue
+    const mesh = new THREE.Mesh(buildAssemblyGeometry(g), assemblyMaterial!)
+    mesh.position.set(p.position[0], p.position[1], p.position[2])
+    mesh.quaternion.set(p.quaternion[0], p.quaternion[1], p.quaternion[2], p.quaternion[3])
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    root.add(mesh)
+  }
+  return root
+}
+
+/** 装配取景：基于整组包围盒（透视 / 正交两种相机均处理） */
+function fitAssembly() {
+  if (!assemblyGroup || !assemblyGroup.children.length) return
+  const bb = new THREE.Box3().setFromObject(assemblyGroup)
+  const center = bb.getCenter(new THREE.Vector3())
+  const size = bb.getSize(new THREE.Vector3())
+  const radius = Math.max(size.length() / 2, 1)
+  const aspect = (containerEl.value!.clientWidth / containerEl.value!.clientHeight) || 1
+  const dir = new THREE.Vector3(0.75, 0.55, 0.9).normalize()
+  controls.target.copy(center)
+  if (cameraMode.value === 'perspective') {
+    const pCam = camera as THREE.PerspectiveCamera
+    const fov = (pCam.fov * Math.PI) / 180
+    const dist = (radius / Math.sin(fov / 2)) * 0.85
+    camera.position.copy(center).add(dir.multiplyScalar(Math.max(dist, 20)))
+    pCam.near = Math.max(0.01, radius / 200)
+    pCam.far = dist * 30
+  } else {
+    const o = camera as THREE.OrthographicCamera
+    const frustum = radius * 1.2
+    o.left = -frustum * aspect
+    o.right = frustum * aspect
+    o.top = frustum
+    o.bottom = -frustum
+    camera.position.copy(center).add(dir.multiplyScalar(Math.max(radius * 3, 50)))
+  }
+  camera.updateProjectionMatrix()
+  gridHelper.position.y = bb.min.y - 2
+}
+
+function initAssembly() {
+  if (!isAssembly.value) return
+  assemblyMaterial = new THREE.MeshMatcapMaterial({
+    matcap: getMatcapTexture(),
+    flatShading: false,
+    side: THREE.DoubleSide,
+  })
+  applyMatcapTint(assemblyMaterial)
+  assemblyGroup = buildAssemblyGroup()
+  scene.add(assemblyGroup)
+  fitAssembly()
+}
+
+/** 重新装配：重新求解位姿重建齿轮组（不调整相机视角） */
+function reassembleAssembly() {
+  if (!isAssembly.value || !assemblyMaterial) return
+  if (assemblyGroup) scene.remove(assemblyGroup)
+  assemblyGroup = buildAssemblyGroup()
+  scene.add(assemblyGroup)
 }
 
 function disposeGearMesh(m: THREE.Mesh) {
@@ -651,12 +743,16 @@ function updateGear() {
 }
 
 watch(() => store.type, () => {
+  if (isAssembly.value) return
   beginGearSwitch()
 })
 
 watch(
   () => store.mesh,
-  () => updateGear()
+  () => {
+    if (isAssembly.value) return
+    updateGear()
+  }
 )
 
 watch(
@@ -679,7 +775,10 @@ defineExpose({
   cameraMode,
 })
 
-onMounted(initScene)
+onMounted(() => {
+  initScene()
+  initAssembly()
+})
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
   cancelAnimationFrame(transitionRaf)
@@ -697,8 +796,33 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="containerEl" class="gear-viewer">
-    <!-- 右下角帧率显示 -->
-    <div class="fps-hud" :class="fpsLevel">
+    <!-- 装配模式悬浮控件：左上角视角切换 / 右上角重新装配 / 右下角俯视 -->
+    <template v-if="isAssembly">
+      <el-button
+        class="viewer-fab view-toggle"
+        circle
+        :icon="View"
+        :title="cameraMode === 'perspective' ? '切换为正交视图' : '切换为透视视图'"
+        @click="switchCameraMode(cameraMode === 'perspective' ? 'orthographic' : 'perspective')"
+      />
+      <el-button
+        class="viewer-fab assemble-fab"
+        circle
+        :icon="RefreshRight"
+        title="重新装配"
+        @click="reassembleAssembly"
+      />
+      <el-button
+        class="viewer-fab top-fab"
+        circle
+        :icon="Bottom"
+        title="俯视图"
+        @click="topView"
+      />
+    </template>
+
+    <!-- 右下角帧率显示（单齿轮模式） -->
+    <div v-if="!isAssembly" class="fps-hud" :class="fpsLevel">
       <div class="fps-readout">
         <span class="fps-value">{{ fps }}</span>
         <span class="fps-unit">FPS</span>
@@ -720,6 +844,57 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 装配模式悬浮按钮：左上角视角切换 / 右上角重新装配 / 右下角俯视 */
+.viewer-fab {
+  position: absolute;
+  z-index: 6;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  color: #5b6472;
+  background: #fff;
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 3px 12px rgba(110, 125, 150, 0.25);
+  transition: color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.viewer-fab:hover,
+.viewer-fab:focus {
+  color: var(--el-color-primary);
+  background: #fff;
+  border-color: transparent;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(110, 125, 150, 0.32);
+}
+
+.viewer-fab:active {
+  color: var(--el-color-primary-dark-2);
+  background: #fff;
+  border-color: transparent;
+  transform: translateY(0);
+}
+
+.viewer-fab :deep(.el-icon) {
+  font-size: 16px;
+}
+
+.view-toggle {
+  top: 14px;
+  left: 14px;
+}
+
+.assemble-fab {
+  top: 14px;
+  right: 14px;
+}
+
+.top-fab {
+  bottom: 14px;
+  right: 14px;
+}
+
 .fps-hud {
   --fps-color: var(--el-color-primary);
   position: absolute;

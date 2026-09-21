@@ -343,7 +343,7 @@ export function validateAssembly(asm: Assembly): void {
   // —— 行星轮系装配条件（montage condition）——
   // 拓扑形态：root=太阳轮(cyl) → N 个 external+bearing 行星轮 → 1 个 internal 齿圈挂在某个行星轮上
   // 几何上：z_齿圈 = z_太阳轮 + 2×z_行星轮 时齿圈自动与太阳轮同心（提示词已要求）
-  // 装配条件：N 个行星轮均布时，(z_齿圈 - z_太阳轮) 必须能被 N 整除，否则只有挂在齿圈上的那个行星轮
+  // 装配条件：N 个行星轮均布时，(z_齿圈 + z_太阳轮) 必须能被 N 整除，否则只有挂在齿圈上的那个行星轮
   // 能与齿圈正确啮合，其他行星轮的齿会与齿圈的齿冲突，无法同时装配
   validatePlanetaryCondition(byId, mates, root)
 }
@@ -390,15 +390,15 @@ function validatePlanetaryCondition(
     )
   }
 
-  // 装配条件（montage）：(z_齿圈 - z_太阳轮) 必须能被行星轮数 N 整除
+  // 装配条件（montage）：(z_齿圈 + z_太阳轮) 必须能被行星轮数 N 整除
   // 这是多个均布行星轮能同时与太阳轮和齿圈都啮合的必要条件
   const N = planetMates.length
-  const diff = ringMc.z - sunMc.z
-  if (diff % N !== 0) {
+  const sum = ringMc.z + sunMc.z
+  if (sum % N !== 0) {
     throw new Error(
-      `行星轮系装配条件不满足：${N} 个均布行星轮要求 (z_齿圈 - z_太阳轮) 能被 ${N} 整除，当前 ${ringMc.z} - ${sunMc.z} = ${diff} 不能被 ${N} 整除。` +
-      `请调整齿数使差值能被 ${N} 整除（如 N=3 时差值需为 3 的倍数，N=4 时为 4 的倍数），否则除挂在齿圈上的那一个行星轮外，其余行星轮的齿会与齿圈干涉，无法装配。` +
-      `可参考组合：3 行星→差值 3 的倍数；4 行星→差值 4 的倍数。`
+      `行星轮系装配条件不满足：${N} 个均布行星轮要求 (z_齿圈 + z_太阳轮) 能被 ${N} 整除，当前 ${ringMc.z} + ${sunMc.z} = ${sum} 不能被 ${N} 整除。` +
+      `请调整齿数使和值能被 ${N} 整除（如 N=3 时和值需为 3 的倍数，N=4 时为 4 的倍数），否则除挂在齿圈上的那一个行星轮外，其余行星轮的齿会与齿圈干涉，无法装配。` +
+      `可参考组合：3 行星→和值 3 的倍数；4 行星→和值 4 的倍数。`
     )
   }
 }

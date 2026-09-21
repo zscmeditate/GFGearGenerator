@@ -11,7 +11,7 @@ import { useAiChatStore } from '../stores/aiChat'
 import { loadAiSettings, type AiSettings } from '../ai/client'
 import type { AiChatSession } from '../ai/session'
 import { gearTypeMap } from '../gear/schema'
-import AiGearCanvas from './AiGearCanvas.vue'
+import GearViewer from './GearViewer.vue'
 import AiSettingsDialog from './AiSettingsDialog.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -198,7 +198,7 @@ const modelLineText = () => {
                   <template v-else>
                     <div class="ai-text">{{ m.text }}</div>
                     <div v-if="m.assembly" class="ai-canvas-card">
-                      <AiGearCanvas :msg-id="m.id" :assembly="m.assembly" />
+                      <GearViewer :assembly="m.assembly" />
                     </div>
                     <el-descriptions
                       v-if="m.changes && m.changes.length"
@@ -601,8 +601,11 @@ const modelLineText = () => {
 }
 
 .ai-canvas-card {
+  position: relative;
   width: 100%;
   max-width: 620px;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
   border-radius: 12px;
   box-shadow: 0 2px 10px rgba(110, 125, 150, 0.14);
 }
