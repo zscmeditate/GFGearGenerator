@@ -658,9 +658,13 @@ function placeParallel(
     return Math.atan2(-local.z, local.x)
   }
   const pitchArc = Math.PI * ((ma.mt + mb.mt) / 2) // 端面齿距弧长
-  const thetaA = thetaOf(fa, u)
-  // 节点对 b 永远在指向 a 中心的 -u 方向（外啮合、内啮合、齿圈为父皆然）
-  const thetaB0 = thetaOf({ pos, quat: qAlign }, u.clone().negate())
+  // 节点相对 a 的方位：外啮合节圆外切，节点在 a→b 的 +u 方向；
+  // 内啮合节圆内切，父为外齿轮（齿圈挂在行星轮上）时节圆切点在外齿轮背离齿圈中心的一侧，即 -u；
+  // 父为齿圈时节圆切点仍在 +u 方向。
+  const thetaA = thetaOf(fa, isInternal && !aIsRing ? u.clone().negate() : u)
+  // 节点对 b 的方位：外啮合与内啮合(父=外齿轮)时在 -u（指向 a 中心）；
+  // 父为齿圈（内啮合，子=外齿轮）时节圆切点在子轮背离齿圈中心的一侧，即 +u。
+  const thetaB0 = thetaOf({ pos, quat: qAlign }, isInternal && aIsRing ? u : u.clone().negate())
   // 弧长啮合方程右端（节圆点齿峰对齿槽）
   let rhs: number
   if (!isInternal) {

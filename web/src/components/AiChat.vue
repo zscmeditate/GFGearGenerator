@@ -620,6 +620,10 @@ const modelLineText = () => {
   gap: 8px;
 }
 
+.ai-actions :deep(.el-button) {
+  margin-left: 0;
+}
+
 /* ---------- 输入区 ---------- */
 .chat-input {
   flex-shrink: 0;
@@ -664,9 +668,16 @@ const modelLineText = () => {
 
 .ai-chat-dialog .el-dialog__header {
   margin-right: 0;
-  padding: 8px 16px;
+  height: 44px;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid rgba(163, 177, 198, 0.45);
   background: transparent;
+}
+
+.ai-chat-dialog .el-dialog__headerbtn {
+  top: 0;
+  height: 44px;
 }
 
 .ai-chat-dialog .el-dialog__body {

@@ -30,6 +30,7 @@ function save() {
 
 <template>
   <el-dialog
+    class="ai-settings-dialog"
     :model-value="modelValue"
     title="大模型设置"
     width="480px"
@@ -71,5 +72,14 @@ function save() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+</style>
+
+<style>
+.ai-settings-dialog .el-dialog__title {
+  font-size: 15px;
+}
+.ai-settings-dialog .el-alert__title {
+  font-size: 12px;
 }
 </style>
