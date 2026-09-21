@@ -434,6 +434,21 @@ export function circleRing(r: number, segments: number, cx = 0, cy = 0, a0 = 0, 
   return ring
 }
 
+/**
+ * 中心孔环（CW，earcut 孔环绕向）：圆孔或带扁位的 D 型孔。
+ * flat 为扁位径向切深——即扁位平面从孔的圆切线（+X 侧）往圆心方向切入的距离。
+ * 扁位平面方程 x = r - flat，保留 x ≤ r - flat 的凸区域（大弧 + 扁位弦）。
+ */
+export function dHoleRing(r: number, flat: number): Vec2[] {
+  const seg = 32
+  const d = Math.min(Math.max(flat, 0), r - 1e-6)
+  if (d <= 1e-6) return circleRing(r, seg).reverse()
+  const c = r - d
+  const theta = Math.acos(c / r)
+  // 弧从 +θ 逆时针扫到 2π-θ（经 -X 侧），首尾点分别是 (c,+h)/(c,-h)，闭合边即水平的扁位弦
+  return circleRing(r, seg, 0, 0, theta, TAU - theta).reverse()
+}
+
 /** 去除环中连续重复点（含首尾相接），避免退化边导致缝合时壳被切开 */
 function dedupeRing(ring: Vec2[]): Vec2[] {
   const out: Vec2[] = []

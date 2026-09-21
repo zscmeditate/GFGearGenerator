@@ -26,6 +26,12 @@ function displayNumber(f: Extract<FieldDef, { measure: string }> & { id: string 
   return v
 }
 
+/** 动态上限：字段带 maxFn 时按当前参数计算（如扁位切深受孔径之半限制），否则用静态 max */
+function maxOf(f: FieldDef): number {
+  const n = f as { max: number; maxFn?: (p: typeof store.params) => number }
+  return typeof n.maxFn === 'function' ? n.maxFn(store.params) : n.max
+}
+
 function emitNumber(f: { id: string; measure: string }, displayVal: number) {
   let v = displayVal
   if (store.params.standard === 'english' && f.measure === 'mm') v = displayVal * 25.4
@@ -90,7 +96,7 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
             <el-slider
               class="range-slider"
               :min="f.min"
-              :max="f.max"
+              :max="maxOf(f)"
               :step="f.step"
               :model-value="displayNumber(f)"
               @update:model-value="(v: number) => emitNumber(f, v)"
@@ -100,7 +106,7 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
               size="small"
               :controls="false"
               :min="f.min"
-              :max="f.max"
+              :max="maxOf(f)"
               :step="f.step"
               :precision="f.measure === 'count' ? 0 : undefined"
               :model-value="displayNumber(f)"
@@ -212,17 +218,17 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
 }
 
 .param-form :deep(.el-form-item) {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .param-form :deep(.el-form-item__label) {
-  padding-bottom: 2px;
+  padding-bottom: 0;
   line-height: 1.4;
 }
 
 /* 数值行（滑块+输入框+单位）的标题与控件更紧凑：覆盖 Element Plus label-top 默认的 8px 下外边距 */
 .number-item :deep(.el-form-item__label) {
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .field-label {

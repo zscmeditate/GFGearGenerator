@@ -4,6 +4,7 @@ import {
   internalToothRing,
   nonStandardInternalHole,
   circleRing,
+  dHoleRing,
   ensureWinding,
   helixTwist,
   degToRad,
@@ -29,6 +30,10 @@ export interface CylOptions {
   nonStandard?: boolean
   /** 内齿轮外圈径向厚度（mm） */
   rimThickness?: number
+  /** 外齿轮中心孔半径（mm，0 或省略 = 实心） */
+  boreRadius?: number
+  /** 轴孔扁位深度（mm）：D 型轴孔平面从圆切线向圆心径向切入，0 = 圆孔无扁位 */
+  boreFlat?: number
   /** 强制最少轴向分层数（滚切蜗轮喉部包络需要足够分层还原圆弧） */
   minLayers?: number
   quality: 'preview' | 'high'
@@ -68,13 +73,18 @@ export function buildCylindricalGear(o: CylOptions): MeshData {
   const totalTwist = helixTwist(spec, ah, o.height, o.cw ?? false)
   const layers = layerCount(totalTwist, o.quality, o.minLayers)
 
+  // 中心孔（外齿轮）：0 表示实心；用齿根圆 rRoot 钳制，避免孔把齿切穿
+  const boreRadius = Math.min(o.boreRadius ?? 0, spec.rRoot - 0.5)
+  const hasBore = boreRadius > 0
+  const boreRing: Vec2[] = hasBore ? dHoleRing(boreRadius, o.boreFlat ?? 0) : []
+
   const mesh = twistedExtrude(
     (twist) => {
       const toothRing = rotateRing(baseOutline, twist)
       if (o.internal) {
         return { outer: rim, holes: [toothRing] }
       }
-      return { outer: toothRing, holes: [] as Vec2[][] }
+      return { outer: toothRing, holes: hasBore ? [boreRing] : [] }
     },
     { height: o.height, totalTwist, layers, doubleHelical: o.doubleHelical ?? false },
     o.internal ? 'internal-gear' : 'gear'

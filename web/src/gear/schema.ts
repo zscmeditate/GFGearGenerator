@@ -21,6 +21,8 @@ export interface NumberField {
   label: string
   min: number
   max: number
+  /** 动态上限（优先于 max）：依赖其它参数时使用，如扁位切深受孔径之半限制 */
+  maxFn?: (p: GearParams) => number
   step: number
   integer?: boolean
   /** 度量：mm 长度（英制时换算 in）/ dp 径节（英制时出现）/ deg 角度 / count 计数 / coef 系数 */
@@ -49,6 +51,10 @@ export interface GearParams {
   z: number
   zPinion: number
   gearHeight: number
+  /** 中心孔径（外齿轮可开中心孔，0 = 实心） */
+  boreDiameter: number
+  /** 轴孔扁位深度：D 型轴孔平面从圆切线向圆心切入的径向深度（0 = 圆孔无扁位） */
+  boreFlat: number
   pressureAngle: number
   radialThickness: number
   helixAngle: number
@@ -71,6 +77,8 @@ export const defaultParams: GearParams = {
   z: 17,
   zPinion: 17,
   gearHeight: 10,
+  boreDiameter: 0,
+  boreFlat: 0,
   pressureAngle: 20,
   radialThickness: 5,
   helixAngle: 15,
@@ -93,6 +101,8 @@ const moduleField = (): NumberField => ({ id: 'module', label: '模数 Module', 
 const pitchField = (): NumberField => ({ id: 'pitch', label: '径节 Pitch [DP]', min: 1.0, max: 63.5, step: 0.1, measure: 'dp', default: 0 })
 const zField = (): NumberField => ({ id: 'z', label: '齿数 Teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 })
 const heightField = (label = '齿宽 Gear height'): NumberField => ({ id: 'gearHeight', label, min: 0.5, max: 150, step: 0.5, measure: 'mm', default: 10 })
+const boreField = (): NumberField => ({ id: 'boreDiameter', label: '中心孔径 Bore diameter', min: 0, max: 8, step: 0.5, measure: 'mm', default: 0 })
+const boreFlatField = (): NumberField => ({ id: 'boreFlat', label: 'D型切深 D-cut depth', min: 0, max: 4, step: 0.5, measure: 'mm', default: 0, maxFn: (p) => p.boreDiameter / 2 })
 const paField = (): NumberField => ({ id: 'pressureAngle', label: '压力角 Pressure angle', min: 14.5, max: 30, step: 0.5, measure: 'deg', default: 20 })
 const radialField = (): NumberField => ({ id: 'radialThickness', label: '径向厚度 Radial thickness', min: 0.5, max: 50, step: 0.5, measure: 'mm', default: 5 })
 // 螺旋角过大时 tan(β) 爆炸导致扭转分层数达上限，工业斜齿一般 ≤45°
@@ -122,7 +132,7 @@ export interface GearTypeMeta {
 export const gearTypes: GearTypeMeta[] = [
   {
     type: GearType.Spur, name: '直齿轮', en: 'Spur Gear', icon: 'SpurGear', group: 0,
-    fields: [moduleField(), pitchField(), zField(), heightField(), paField()]
+    fields: [moduleField(), pitchField(), zField(), heightField(), paField(), boreField(), boreFlatField()]
   },
   {
     type: GearType.Helical, name: '斜齿 / 人字齿轮', en: 'Helical Gear', icon: 'Helical', group: 0,
@@ -130,7 +140,7 @@ export const gearTypes: GearTypeMeta[] = [
       helicalSystemField(),
       { id: 'clockwise', label: '右旋反向 Clock wise', default: false },
       { id: 'doubleHelical', label: '人字齿 Double helical', default: false },
-      moduleField(), pitchField(), zField(), heightField(), paField(), helixField()
+      moduleField(), pitchField(), zField(), heightField(), paField(), helixField(), boreField(), boreFlatField()
     ]
   },
   {
@@ -139,7 +149,8 @@ export const gearTypes: GearTypeMeta[] = [
       moduleField(), pitchField(),
       { id: 'z', label: '大轮齿数 Wheel teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 },
       { id: 'zPinion', label: '小轮齿数 Pinion teeth', min: 6, max: 200, step: 1, integer: true, measure: 'count', default: 17 },
-      paField()
+      paField(),
+      boreField(), boreFlatField()
     ]
   },
   {
@@ -176,7 +187,8 @@ export const gearTypes: GearTypeMeta[] = [
       { id: 'wormLength', label: '蜗杆长度 Worm length', min: 5, max: 200, step: 1, measure: 'mm', default: 40 },
       { id: 'gearHeight', label: '蜗轮厚度 Worm gear height', min: 1, max: 150, step: 0.5, measure: 'mm', default: 12 },
       paField(),
-      { id: 'wormDriveRadius', label: '蜗杆分度圆半径 Drive radius', min: 1, max: 50, step: 0.5, measure: 'mm', default: 5 }
+      { id: 'wormDriveRadius', label: '蜗杆分度圆半径 Drive radius', min: 1, max: 50, step: 0.5, measure: 'mm', default: 5 },
+      boreField(), boreFlatField()
     ]
   },
   {
@@ -209,7 +221,7 @@ export const gearTypes: GearTypeMeta[] = [
     type: GearType.ShiftedSpur, name: '变位直齿轮', en: 'Profile Shifted Spur', icon: 'Recto', group: 2,
     fields: [
       { id: 'X', label: '变位系数 X', min: -1, max: 1, step: 0.01, measure: 'coef', default: 0 },
-      moduleField(), pitchField(), zField(), heightField(), paField()
+      moduleField(), pitchField(), zField(), heightField(), paField(), boreField(), boreFlatField()
     ]
   },
   {
@@ -219,7 +231,7 @@ export const gearTypes: GearTypeMeta[] = [
       { id: 'clockwise', label: '右旋反向 Clock wise', default: false },
       { id: 'doubleHelical', label: '人字齿 Double helical', default: false },
       { id: 'X', label: '变位系数 X', min: -1, max: 1, step: 0.01, measure: 'coef', default: 0 },
-      moduleField(), pitchField(), zField(), heightField(), paField(), helixField()
+      moduleField(), pitchField(), zField(), heightField(), paField(), helixField(), boreField(), boreFlatField()
     ]
   }
 ]

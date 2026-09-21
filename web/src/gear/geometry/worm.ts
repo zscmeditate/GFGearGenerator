@@ -17,6 +17,10 @@ export interface WormOptions {
   leftThreaded?: boolean
   /** 滚切直蜗轮（带喉部包络），false=螺旋蜗轮 */
   hobbed?: boolean
+  /** 蜗轮中心孔半径（mm，0 = 实心） */
+  boreRadius?: number
+  /** 蜗轮 D 型切深（mm，0 = 圆孔） */
+  boreFlat?: number
   quality: 'preview' | 'high'
 }
 
@@ -44,6 +48,8 @@ export function buildWormDrive(o: WormOptions): MeshData {
     cw: o.leftThreaded ?? false,
     // 低精度沿用原高精度分层数（80）；高精度再提升 5 倍至 400
     minLayers: o.hobbed ? (o.quality === 'preview' ? 80 : 400) : undefined,
+    boreRadius: o.boreRadius ?? 0,
+    boreFlat: o.boreFlat ?? 0,
     quality: o.quality
   })
 

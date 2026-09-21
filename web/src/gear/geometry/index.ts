@@ -23,26 +23,28 @@ export function buildGear(type: GearType, p: GearParams, extra: ExtraValues, qua
   switch (type) {
     case GearType.Spur:
       return layFlat(buildCylindricalGear({
-        m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight, quality
+        m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
+        boreRadius: p.boreDiameter / 2, boreFlat: p.boreFlat, quality
       }))
 
     case GearType.ShiftedSpur:
       return layFlat(buildCylindricalGear({
-        m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight, X: p.X, quality
+        m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight, X: p.X,
+        boreRadius: p.boreDiameter / 2, boreFlat: p.boreFlat, quality
       }))
 
     case GearType.Helical:
       return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         helixAngleDeg: p.helixAngle, cw: p.clockwise, doubleHelical: p.doubleHelical,
-        normalSystem, quality
+        normalSystem, boreRadius: p.boreDiameter / 2, boreFlat: p.boreFlat, quality
       }))
 
     case GearType.ShiftedHelical:
       return layFlat(buildCylindricalGear({
         m, z: p.z, pressureAngleDeg: p.pressureAngle, height: p.gearHeight,
         helixAngleDeg: p.helixAngle, cw: p.clockwise, doubleHelical: p.doubleHelical,
-        normalSystem, X: p.X, quality
+        normalSystem, X: p.X, boreRadius: p.boreDiameter / 2, boreFlat: p.boreFlat, quality
       }))
 
     case GearType.Internal:
@@ -80,7 +82,8 @@ export function buildGear(type: GearType, p: GearParams, extra: ExtraValues, qua
     case GearType.Bevel:
       return buildBevelPair({
         m, zWheel: p.z, zPinion: p.zPinion,
-        pressureAngleDeg: p.pressureAngle, quality
+        pressureAngleDeg: p.pressureAngle, quality,
+        boreRadius: p.boreDiameter / 2, boreFlat: p.boreFlat
       })
 
     case GearType.Worm:
@@ -90,6 +93,7 @@ export function buildGear(type: GearType, p: GearParams, extra: ExtraValues, qua
         driveRadius: p.wormDriveRadius,
         leftThreaded: p.leftThreaded,
         hobbed: extra.wormType === 'hobbed',
+        boreRadius: p.boreDiameter / 2, boreFlat: p.boreFlat,
         quality
       })
   }
