@@ -339,6 +339,68 @@ export function validateAssembly(asm: Assembly): void {
       }
     }
   }
+
+  // —— 行星轮系装配条件（montage condition）——
+  // 拓扑形态：root=太阳轮(cyl) → N 个 external+bearing 行星轮 → 1 个 internal 齿圈挂在某个行星轮上
+  // 几何上：z_齿圈 = z_太阳轮 + 2×z_行星轮 时齿圈自动与太阳轮同心（提示词已要求）
+  // 装配条件：N 个行星轮均布时，(z_齿圈 - z_太阳轮) 必须能被 N 整除，否则只有挂在齿圈上的那个行星轮
+  // 能与齿圈正确啮合，其他行星轮的齿会与齿圈的齿冲突，无法同时装配
+  validatePlanetaryCondition(byId, mates, root)
+}
+
+function validatePlanetaryCondition(
+  byId: Map<string, AssemblyGear>,
+  mates: Mate[],
+  root: string
+): void {
+  const sunGear = byId.get(root)!
+  if (familyOf(sunGear.type) !== 'cyl') return
+
+  // 太阳轮的所有 external 子节点（候选行星轮）
+  const planetMates = mates.filter((m) => m.a === root && m.kind === 'external')
+  if (planetMates.length < 2) return // 单行星不算行星系
+
+  // 是否存在一个齿圈挂在某个行星轮上（internal 关系，父=行星轮，子=齿圈）
+  const planetIds = new Set(planetMates.map((m) => m.b))
+  const ringMate = mates.find(
+    (m) => m.kind === 'internal' && planetIds.has(m.a)
+  )
+  if (!ringMate) return // 没有齿圈，不是行星系
+
+  const sunMc = gearMetrics(sunGear)
+  const ringGear = byId.get(ringMate.b)!
+  const ringMc = gearMetrics(ringGear)
+  if (ringMc.family !== 'ring') return
+
+  // 所有行星轮必须同齿数（这是行星轮系的基础要求）
+  const planetMcs = planetMates.map((m) => gearMetrics(byId.get(m.b)!))
+  const firstPlanetZ = planetMcs[0].z
+  const mismatched = planetMcs.find((mc) => mc.z !== firstPlanetZ)
+  if (mismatched) {
+    throw new Error(
+      `行星轮系要求所有行星轮齿数相同（当前存在不同齿数的行星轮），请统一为 ${firstPlanetZ} 齿`
+    )
+  }
+
+  // 同心条件：z_齿圈 = z_太阳轮 + 2×z_行星轮
+  const expectedRingZ = sunMc.z + 2 * firstPlanetZ
+  if (ringMc.z !== expectedRingZ) {
+    throw new Error(
+      `行星轮系同心条件不满足：z_齿圈应为 z_太阳轮 + 2×z_行星轮 = ${sunMc.z} + 2×${firstPlanetZ} = ${expectedRingZ}（当前 z_齿圈=${ringMc.z}），否则齿圈无法与太阳轮同心`
+    )
+  }
+
+  // 装配条件（montage）：(z_齿圈 - z_太阳轮) 必须能被行星轮数 N 整除
+  // 这是多个均布行星轮能同时与太阳轮和齿圈都啮合的必要条件
+  const N = planetMates.length
+  const diff = ringMc.z - sunMc.z
+  if (diff % N !== 0) {
+    throw new Error(
+      `行星轮系装配条件不满足：${N} 个均布行星轮要求 (z_齿圈 - z_太阳轮) 能被 ${N} 整除，当前 ${ringMc.z} - ${sunMc.z} = ${diff} 不能被 ${N} 整除。` +
+      `请调整齿数使差值能被 ${N} 整除（如 N=3 时差值需为 3 的倍数，N=4 时为 4 的倍数），否则除挂在齿圈上的那一个行星轮外，其余行星轮的齿会与齿圈干涉，无法装配。` +
+      `可参考组合：3 行星→差值 3 的倍数；4 行星→差值 4 的倍数。`
+    )
+  }
 }
 
 function mateLabel(kind: MateKind): string {
@@ -568,7 +630,14 @@ function placeParallel(
   // b 轴与 a 轴平行同向
   const qAlign = new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), axisW)
 
-  // 理想位置：沿连心线移中心距；齿宽中点沿轴对齐（只补齿宽差，不动径向中心距）
+  // —— 轴向对齐策略：齿宽中点对齐（center alignment）——
+  // 行业惯例：平行轴圆柱齿轮副默认中心对齐，理由：
+  //  1) 最大化齿宽方向的接触面积，避免边缘载荷集中（edge loading）导致点蚀；
+  //  2) 允许轴向微小浮动补偿安装误差，齿宽方向接触斑中心居中；
+  //  3) 对人字齿（doubleHelical）强制要求：两侧 V 槽顶点必须轴向重合，
+  //     中心对齐自动满足此条件；
+  //  4) 当小齿轮比大齿轮略宽 2~5mm（实线轴允许轴向浮动）时，仍按齿宽中点对齐。
+  // pos = a 原点 + u·中心距 + axis·(ha-hb)/2，使 b 的齿宽中点落到 a 的齿宽中点
   const pos = fa.pos.clone().addScaledVector(u, C).addScaledVector(axisW, (ma.h - mb.h) / 2)
 
   // 与非啮合轮坯（同轴或径向靠近的平行轴，如二级减速的输入/输出大轮）沿轴自动错开
