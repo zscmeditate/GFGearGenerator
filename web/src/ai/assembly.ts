@@ -756,8 +756,9 @@ function placeRack(
   const basis = new THREE.Matrix4().makeBasis(t, n, axisW)
   const quat = new THREE.Quaternion().setFromRotationMatrix(basis)
 
-  // 小齿轮齿宽中点 = 齿条厚度中点；齿条节线（局部 y=0）距小齿轮中心 rp
-  const pinMid = fa.pos.clone().add(V(0, ma.h / 2, 0).applyQuaternion(fa.quat))
+  // 齿轮几何已居中（齿宽 y∈[-h/2,h/2]），齿宽中点即齿轮原点 fa.pos；
+  // 齿条厚度中点与齿轮齿宽中点对齐，齿条节线（局部 y=0）距小齿轮中心 rp
+  const pinMid = fa.pos.clone()
   const pos = pinMid.clone().addScaledVector(n, -ma.rp)
 
   // 齿相：小齿轮在 -n 方向（节点）的齿相位；齿条中点 x=0 为齿槽中心、齿峰在 p/2+k·p
@@ -766,8 +767,12 @@ function placeRack(
   const local = n.clone().negate().applyQuaternion(fa.quat.clone().invert())
   const thetaPin = Math.atan2(-local.z, local.x)
   const target = mod(ma.rp * thetaPin, Math.PI * ma.mt)
-  // 齿条沿 -t 平移使接触点落在目标齿相（target 已在一个齿距内）
-  pos.addScaledVector(t, -target)
+  // 齿条中线 x=0 为齿槽中心的假设仅在齿数 z 为偶数时成立；z 为奇数时齿峰落在 x=0，
+  // 需再错开半个齿距，使齿槽对齐到节点（齿条轮廓由 rackOutline 生成、齿峰中心位于 xc）。
+  const oddTeeth = mb.z % 2 !== 0
+  const shift = target + (oddTeeth ? (Math.PI * ma.mt) / 2 : 0)
+  // 齿条沿 -t 平移使接触点落在目标齿相（shift 已在一个齿距内）
+  pos.addScaledVector(t, -shift)
 
   return { pos, quat }
 }

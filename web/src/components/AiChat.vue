@@ -6,7 +6,8 @@
  *   3D 预览画布（滚入视野才启动渲染循环）+ 变化参数表 + 应用到主视图。
  */
 import { nextTick, ref, watch } from 'vue'
-import { ChatDotRound, Delete, Edit, Loading, MagicStick, Plus, Promotion, Setting } from '@element-plus/icons-vue'
+import { ChatDotRound, CopyDocument, Delete, Edit, Loading, MagicStick, Plus, Promotion, Setting, UserFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useAiChatStore } from '../stores/aiChat'
 import { loadAiSettings, type AiSettings } from '../ai/client'
 import type { AiChatSession } from '../ai/session'
@@ -19,6 +20,7 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
 const store = useAiChatStore()
 const draft = ref('')
+const draftInputRef = ref<{ focus: () => void } | null>(null)
 const flowEl = ref<HTMLDivElement | null>(null)
 const settingsOpen = ref(false)
 const settings = ref<AiSettings>(loadAiSettings())
@@ -88,6 +90,30 @@ function send() {
   if (!text || store.calling) return
   draft.value = ''
   void store.send(text)
+}
+
+/* ---------- 消息操作：复制 / 编辑 / 时间 ---------- */
+function copyText(text: string) {
+  if (!text) return
+  if (!navigator.clipboard) {
+    ElMessage.error('当前环境不支持复制')
+    return
+  }
+  navigator.clipboard.writeText(text).then(
+    () => ElMessage.success('已复制'),
+    () => ElMessage.error('复制失败')
+  )
+}
+
+function editDraft(text: string) {
+  draft.value = text
+  nextTick(() => draftInputRef.value?.focus())
+}
+
+function formatTime(t: number): string {
+  const d = new Date(t)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 const modelLineText = () => {
@@ -180,12 +206,20 @@ const modelLineText = () => {
             <template v-for="m in store.activeSession.messages" :key="m.id">
               <!-- 用户消息：文本气泡 -->
               <div v-if="m.role === 'user'" class="row user">
-                <div class="user-bubble">{{ m.text }}</div>
+                <div class="user-body">
+                  <div class="user-bubble">{{ m.text }}</div>
+                  <div class="msg-toolbar">
+                    <span class="msg-time">{{ formatTime(m.time) }}</span>
+                    <el-icon class="msg-op" title="复制" @click="copyText(m.text)"><CopyDocument /></el-icon>
+                    <el-icon class="msg-op" title="编辑" @click="editDraft(m.text)"><Edit /></el-icon>
+                  </div>
+                </div>
+                <div class="user-avatar"><el-icon><UserFilled /></el-icon></div>
               </div>
 
               <!-- AI 消息：文字 + 预览画布 + 变化参数 -->
               <div v-else class="row ai">
-                <div class="ai-avatar"><el-icon><MagicStick /></el-icon></div>
+                <div class="ai-avatar"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.05.24.26.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65Z"/></svg></div>
                 <div class="ai-body">
                   <el-alert
                     v-if="m.error"
@@ -197,6 +231,10 @@ const modelLineText = () => {
                   />
                   <template v-else>
                     <div class="ai-text">{{ m.text }}</div>
+                    <div class="msg-toolbar">
+                      <span class="msg-time">{{ formatTime(m.time) }}</span>
+                      <el-icon v-if="m.text" class="msg-op" title="复制" @click="copyText(m.text)"><CopyDocument /></el-icon>
+                    </div>
                     <div v-if="m.assembly" class="ai-canvas-card">
                       <GearViewer :assembly="m.assembly" />
                     </div>
@@ -242,6 +280,7 @@ const modelLineText = () => {
 
        <div class="chat-input">
          <el-input
+           ref="draftInputRef"
            v-model="draft"
            type="textarea"
            :rows="2"
@@ -542,10 +581,34 @@ const modelLineText = () => {
 .row.user {
   display: flex;
   justify-content: flex-end;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.user-body {
+  min-width: 0;
+  max-width: 72%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user-avatar {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c7a92;
+  font-size: 22px;
+  background: #e0e6ed;
+  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
+              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
 }
 
 .user-bubble {
-  max-width: 72%;
   padding: 10px 14px;
   border-radius: 14px 14px 4px 14px;
   background: var(--el-color-primary-light-8);
@@ -556,6 +619,36 @@ const modelLineText = () => {
   word-break: break-word;
 }
 
+/* 消息时间与操作按钮 */
+.msg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+}
+
+.row.user .msg-toolbar {
+  justify-content: flex-end;
+}
+
+.msg-time {
+  font-size: 11px;
+  color: #a8b0bf;
+  line-height: 1;
+  user-select: none;
+}
+
+.msg-op {
+  font-size: 13px;
+  color: #8b95a5;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.msg-op:hover {
+  color: var(--el-color-primary);
+}
+
 .row.ai {
   display: flex;
   gap: 10px;
@@ -563,16 +656,17 @@ const modelLineText = () => {
 
 .ai-avatar {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 15px;
-  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
-  box-shadow: 0 3px 10px var(--el-color-primary-light-5);
+  color: var(--el-color-primary);
+  font-size: 22px;
+  background: #e0e6ed;
+  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
+              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
 }
 
 .ai-body {
