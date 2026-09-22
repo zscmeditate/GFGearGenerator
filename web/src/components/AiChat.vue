@@ -44,6 +44,7 @@ const dialogClass = computed(() => compactMode.value ? 'ai-chat-dialog ai-chat-c
 
 function toggleCompact() {
   const el = document.querySelector('.ai-chat-dialog') as HTMLElement | null
+  const overlay = document.querySelector('.el-overlay') as HTMLElement | null
   if (!el) {
     compactMode.value = !compactMode.value
     localStorage.setItem('gf-ai-compact', compactMode.value ? '1' : '0')
@@ -52,9 +53,13 @@ function toggleCompact() {
   const goingCompact = !compactMode.value
   const targetWidth = goingCompact ? '30%' : '60%'
 
-  // 第一阶段：整个窗口缓慢淡出
+  // 第一阶段：整个窗口缓慢淡出 + 遮罩背景同步淡出
   el.style.transition = 'opacity 280ms cubic-bezier(0.4, 0, 1, 1)'
   el.style.opacity = '0'
+  if (overlay) {
+    overlay.style.transition = 'background-color 280ms cubic-bezier(0.4, 0, 1, 1)'
+    overlay.style.backgroundColor = 'transparent'
+  }
 
   setTimeout(() => {
     // 淡出完毕，切换模式 + 平滑改变宽度（对话框仍透明，用户看不到重排）
@@ -62,11 +67,14 @@ function toggleCompact() {
     localStorage.setItem('gf-ai-compact', goingCompact ? '1' : '0')
     el.style.transition = 'width 260ms var(--ease-out)'
     el.style.width = targetWidth
-    // 等宽度动画结束，遮罩 CSS 动画也恰好延迟 260ms 后开始
-    // 此时清除内联背景色，让 CSS 动画接管遮罩淡入
+    // 等宽度动画结束，遮罩和对话框同时淡入
     setTimeout(() => {
-      el.style.removeProperty('background-color')
-      // 对话框与遮罩同时开始淡入
+      // 遮罩背景淡入
+      if (overlay) {
+        overlay.style.transition = 'background-color 300ms var(--ease-out)'
+        overlay.style.backgroundColor = ''
+      }
+      // 对话框淡入
       el.style.transition = 'opacity 320ms cubic-bezier(0, 0, 0.2, 1)'
       el.style.opacity = '1'
       // 清理内联样式
@@ -74,9 +82,28 @@ function toggleCompact() {
         el.style.width = ''
         el.style.transition = ''
         el.style.opacity = ''
+        if (overlay) {
+          overlay.style.transition = ''
+          overlay.style.backgroundColor = ''
+        }
       }, 330)
     }, 260)
   }, 280)
+}
+
+function onDialogClose() {
+  // 关闭时清除内联样式，让 Element Plus 的 leave 动画正常执行
+  const el = document.querySelector('.ai-chat-dialog') as HTMLElement | null
+  const overlay = document.querySelector('.el-overlay') as HTMLElement | null
+  if (el) {
+    el.style.opacity = ''
+    el.style.transition = ''
+    el.style.width = ''
+  }
+  if (overlay) {
+    overlay.style.transition = ''
+    overlay.style.backgroundColor = ''
+  }
 }
 
 /* ---------- 装配体导出 Loading ---------- */
@@ -246,6 +273,8 @@ async function exportAssembly(m: AiChatMessage) {
     :teleported="!compactMode"
     :show-close="false"
     @update:model-value="emit('update:modelValue', $event)"
+    @close="onDialogClose"
+    @closed="onDialogClose"
   >
     <template #header>
       <div class="chat-header">
@@ -1023,18 +1052,8 @@ async function exportAssembly(m: AiChatMessage) {
  * 故用自定义类名隔离的非 scoped 样式块 */
 
 /* overlay：遮罩背景始终可过渡，精简模式下不拦截点击 */
-/* 非精简模式：遮罩延迟 260ms 再淡入，与对话框 fade-in 同步（等宽度动画结束） */
 .el-overlay:has(.ai-chat-dialog) {
-  background-color: transparent;
-}
-
-.el-overlay:has(.ai-chat-dialog):not(:has(.ai-chat-compact)) {
-  animation: overlayFadeIn 300ms var(--ease-out) 260ms forwards;
-}
-
-@keyframes overlayFadeIn {
-  from { background-color: transparent; }
-  to { background-color: var(--el-overlay-bg-color, rgba(0, 0, 0, 0.5)); }
+  transition: background-color 300ms var(--ease-out);
 }
 
 .el-overlay:has(.ai-chat-compact) {
