@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { RefreshLeft, Setting } from '@element-plus/icons-vue'
 import { useGearStore } from '../stores/gear'
 import type { FieldDef } from '../gear/schema'
@@ -7,6 +7,28 @@ import type { FieldDef } from '../gear/schema'
 const store = useGearStore()
 
 const fields = computed(() => store.meta.fields.filter((f) => f.id !== 'fastCompute'))
+
+/**
+ * 类型切换过渡（Emil Kowalski 设计工程技巧）：
+ * 1. blur crossfade — 淡出时加 blur，掩盖新旧布局叠加的"脏帧"
+ * 2. asymmetric timing — 退出快（120ms），进入慢（220ms）
+ * 3. stagger — 新字段依次入场，产生瀑布流节奏感
+ */
+const phase = ref<'idle' | 'leaving' | 'entering'>('idle')
+let enterTimer = 0
+
+watch(() => store.type, () => {
+  clearTimeout(enterTimer)
+  phase.value = 'leaving'
+  // nextTick + rAF：确保 Vue 已用新字段重绘 DOM 后再切换到 entering
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      phase.value = 'entering'
+      // entering 动画结束后回到 idle（最长字段 × stagger 延迟 + 动画时长）
+      enterTimer = window.setTimeout(() => { phase.value = 'idle' }, 350)
+    })
+  })
+})
 
 function isVisible(f: FieldDef): boolean {
   if (f.id === 'module') return store.params.standard === 'metric'
@@ -83,71 +105,73 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
       </div>
     </template>
 
-    <el-form label-position="top" class="param-form">
-      <template v-for="f in fields" :key="f.id">
-        <!-- 数值：滑块 + 数字输入 -->
-        <el-form-item v-if="!isChoice(f) && !isBool(f) && isVisible(f)" class="param-item number-item">
-          <template #label>
-            <div class="field-label">
-              <span>{{ f.label }}</span>
+    <el-form label-position="top" class="param-form" :class="`param-phase-${phase}`">
+      <div class="param-fields">
+        <template v-for="(f, idx) in fields" :key="f.id">
+          <!-- 数值：滑块 + 数字输入 -->
+          <el-form-item v-if="!isChoice(f) && !isBool(f) && isVisible(f)" class="param-item number-item" :style="{ '--i': idx }">
+            <template #label>
+              <div class="field-label">
+                <span>{{ f.label }}</span>
+              </div>
+            </template>
+            <div class="range-row">
+              <el-slider
+                class="range-slider"
+                :min="f.min"
+                :max="maxOf(f)"
+                :step="f.step"
+                :model-value="displayNumber(f)"
+                @update:model-value="(v: number) => emitNumber(f, v)"
+              />
+              <el-input-number
+                class="num-input"
+                size="small"
+                :controls="false"
+                :min="f.min"
+                :max="maxOf(f)"
+                :step="f.step"
+                :precision="f.measure === 'count' ? 0 : undefined"
+                :model-value="displayNumber(f)"
+                @update:model-value="(v: number | undefined) => onNumberInput(f, v)"
+              />
+              <span class="field-unit">{{ unitOf(f) }}</span>
             </div>
-          </template>
-          <div class="range-row">
-            <el-slider
-              class="range-slider"
-              :min="f.min"
-              :max="maxOf(f)"
-              :step="f.step"
-              :model-value="displayNumber(f)"
-              @update:model-value="(v: number) => emitNumber(f, v)"
-            />
-            <el-input-number
-              class="num-input"
-              size="small"
-              :controls="false"
-              :min="f.min"
-              :max="maxOf(f)"
-              :step="f.step"
-              :precision="f.measure === 'count' ? 0 : undefined"
-              :model-value="displayNumber(f)"
-              @update:model-value="(v: number | undefined) => onNumberInput(f, v)"
-            />
-            <span class="field-unit">{{ unitOf(f) }}</span>
-          </div>
-        </el-form-item>
+          </el-form-item>
 
-        <!-- 布尔开关 -->
-        <el-form-item v-else-if="isBool(f)" class="param-item bool-item">
-          <span class="bool-label">{{ f.label }}</span>
-          <el-switch
-            :model-value="Boolean(valueOf(f))"
-            @update:model-value="(v: boolean) => store.setParam(f.id, v)"
-          />
-        </el-form-item>
+          <!-- 布尔开关 -->
+          <el-form-item v-else-if="isBool(f)" class="param-item bool-item" :style="{ '--i': idx }">
+            <span class="bool-label">{{ f.label }}</span>
+            <el-switch
+              :model-value="Boolean(valueOf(f))"
+              @update:model-value="(v: boolean) => store.setParam(f.id, v)"
+            />
+          </el-form-item>
 
-        <!-- 分段选择 -->
-        <el-form-item v-else-if="isChoice(f)" class="param-item choice-item">
-          <template #label>
-            <div class="field-label"><span>{{ f.label }}</span></div>
-          </template>
-          <el-radio-group
-            class="choice-group"
-            :model-value="valueOf(f)"
-            @update:model-value="(v: string | number | boolean) => store.setParam(f.id, v)"
-          >
-            <el-radio-button
-              v-for="opt in f.options"
-              :key="opt.value"
-              :value="opt.value"
+          <!-- 分段选择 -->
+          <el-form-item v-else-if="isChoice(f)" class="param-item choice-item" :style="{ '--i': idx }">
+            <template #label>
+              <div class="field-label"><span>{{ f.label }}</span></div>
+            </template>
+            <el-radio-group
+              class="choice-group"
+              :model-value="valueOf(f)"
+              @update:model-value="(v: string | number | boolean) => store.setParam(f.id, v)"
             >
-              {{ opt.label }}
-            </el-radio-button>
-          </el-radio-group>
-          <div v-if="f.options.find((o) => o.value === valueOf(f))?.hint" class="choice-hint">
-            {{ f.options.find((o) => o.value === valueOf(f))?.hint }}
-          </div>
-        </el-form-item>
-      </template>
+              <el-radio-button
+                v-for="opt in f.options"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </el-radio-button>
+            </el-radio-group>
+            <div v-if="f.options.find((o) => o.value === valueOf(f))?.hint" class="choice-hint">
+              {{ f.options.find((o) => o.value === valueOf(f))?.hint }}
+            </div>
+          </el-form-item>
+        </template>
+      </div>
     </el-form>
   </el-card>
 </template>
@@ -314,5 +338,62 @@ function isBool(f: FieldDef): f is Extract<FieldDef, { default: boolean }> {
   color: #909399;
   line-height: 1.4;
   text-align: center;
+}
+
+/* ===== 类型切换过渡：blur crossfade + asymmetric timing + stagger =====
+ *
+ * 技巧来源：Emil Kowalski 设计工程哲学
+ * 1. blur crossfade — 过渡中加 filter:blur，让新旧布局视觉上融为一体，
+ *    避免两个不同布局叠加时出现的"脏帧"
+ * 2. asymmetric timing — 退出快（用户已预期变化）/ 进入慢（用户在看新内容）
+ * 3. stagger — 新字段依次入场（30ms 间隔），产生瀑布流节奏感
+ */
+.param-fields {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 默认态：完全可见，无 blur */
+.param-form .param-fields {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
+}
+
+/* 退出阶段：快（120ms）+ blur 增长，掩盖旧控件消失的布局跳动 */
+.param-form.param-phase-leaving .param-fields {
+  opacity: 0;
+  filter: blur(3px);
+  transform: translateY(-4px);
+  transition:
+    opacity 0.12s var(--ease-out),
+    filter 0.12s var(--ease-out),
+    transform 0.12s var(--ease-out);
+}
+
+/* 进入阶段：慢（220ms）+ blur 消散 + 逐项 stagger */
+.param-form.param-phase-entering .param-fields {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
+  transition:
+    opacity 0.22s var(--ease-out),
+    filter 0.22s var(--ease-out),
+    transform 0.22s var(--ease-out);
+}
+
+/* 逐项 stagger：每个字段延迟 30ms × 序号 */
+.param-form.param-phase-entering .param-item {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: paramStaggerIn 0.22s var(--ease-out) forwards;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+@keyframes paramStaggerIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

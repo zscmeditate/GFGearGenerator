@@ -338,12 +338,18 @@ onBeforeUnmount(() => {
   color: #5d6c85;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 1px 5px rgba(90, 104, 128, 0.25);
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
 }
 
-.reassemble-btn:hover {
-  color: var(--el-color-primary);
-  background: rgba(255, 255, 255, 0.95);
+.reassemble-btn:active {
+  transform: scale(0.93);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .reassemble-btn:hover {
+    color: var(--el-color-primary);
+    background: rgba(255, 255, 255, 0.95);
+  }
 }
 
 .still {

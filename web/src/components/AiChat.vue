@@ -5,25 +5,51 @@
  * - 右侧：多轮对话流，用户消息为文本气泡，AI 消息为文字 + 独立参数快照的
  *   3D 预览画布（滚入视野才启动渲染循环）+ 变化参数表 + 应用到主视图。
  */
-import { nextTick, ref, watch } from 'vue'
-import { ChatDotRound, CopyDocument, Delete, Edit, Loading, MagicStick, Plus, Promotion, Setting, UserFilled } from '@element-plus/icons-vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { ChatDotRound, Close, CopyDocument, Delete, Edit, Loading, MagicStick, Plus, Promotion, Setting, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAiChatStore } from '../stores/aiChat'
 import { loadAiSettings, type AiSettings } from '../ai/client'
-import type { AiChatSession } from '../ai/session'
+import type { AiChatSession, AiChatMessage } from '../ai/session'
 import { gearTypeMap } from '../gear/schema'
+import { exportMesh, downloadBlob } from '../cad/exporters'
+import { buildGear } from '../gear/geometry'
+import { useGearStore } from '../stores/gear'
+import { buildFlatGeometry } from '../gear/mesh/flatGeometry'
+import { MeshData } from '../gear/mesh/MeshData'
+import { solveAssembly } from '../ai/assembly'
+import { snapshotToParamsExtra } from '../ai/session'
+import * as THREE from 'three'
 import GearViewer from './GearViewer.vue'
 import AiSettingsDialog from './AiSettingsDialog.vue'
+import ExportLoading from './ExportLoading.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
 const store = useAiChatStore()
+const gearStore = useGearStore()
 const draft = ref('')
 const draftInputRef = ref<{ focus: () => void } | null>(null)
 const flowEl = ref<HTMLDivElement | null>(null)
 const settingsOpen = ref(false)
 const settings = ref<AiSettings>(loadAiSettings())
+
+/* ---------- 精简模式 ---------- */
+const compactMode = ref(localStorage.getItem('gf-ai-compact') === '1')
+const dialogWidth = computed(() => compactMode.value ? '30%' : '60%')
+const dialogClass = computed(() => compactMode.value ? 'ai-chat-dialog ai-chat-compact' : 'ai-chat-dialog')
+
+function toggleCompact() {
+  compactMode.value = !compactMode.value
+  localStorage.setItem('gf-ai-compact', compactMode.value ? '1' : '0')
+}
+
+/* ---------- 装配体导出 Loading ---------- */
+const exportLoadingVisible = ref(false)
+const exportLoadingStage = ref('')
+const exportLoadingPct = ref(0)
+const formatExportPct = (pct: number) => `${pct.toFixed(2)}%`
 
 const examples = [
   '两级直齿轮减速：输入 20 齿、输出 60 齿，模数 2、齿宽 15',
@@ -120,14 +146,71 @@ const modelLineText = () => {
   const s = settings.value
   return s.apiKey.trim() ? s.model : '未配置 API Key'
 }
+
+/** 导出装配体：合并所有齿轮几何为单一 MeshData，导出 STEP */
+async function exportAssembly(m: AiChatMessage) {
+  if (!m.assembly || !m.assembly.gears.length) return
+  exportLoadingVisible.value = true
+  exportLoadingPct.value = 0
+  exportLoadingStage.value = '准备装配数据…'
+  try {
+    const gearCount = m.assembly.gears.length
+    const placed = new Map(solveAssembly(m.assembly).map((p) => [p.id, p]))
+    const merged = new MeshData()
+    const quat = new THREE.Quaternion()
+    for (let i = 0; i < m.assembly.gears.length; i++) {
+      const g = m.assembly.gears[i]
+      const p = placed.get(g.id)
+      if (!p) continue
+      exportLoadingStage.value = `合并齿轮 ${i + 1}/${gearCount}…`
+      exportLoadingPct.value = Math.round(((i + 1) / gearCount) * 30)
+      const { params, extra } = snapshotToParamsExtra(g)
+      const data = buildGear(g.type, params, extra, gearStore.quality)
+      const geo = buildFlatGeometry(data.positions, data.indices)
+      const md = new MeshData()
+      const posAttr = geo.getAttribute('position') as THREE.BufferAttribute
+      for (let i = 0; i < posAttr.count; i++) {
+        md.vertex(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i))
+      }
+      const triCount = posAttr.count / 3
+      for (let t = 0; t < triCount; t++) {
+        md.tri(t * 3, t * 3 + 1, t * 3 + 2)
+      }
+      quat.set(p.quaternion[0], p.quaternion[1], p.quaternion[2], p.quaternion[3])
+      merged.merge(md, (x, y, z) => {
+        const v = new THREE.Vector3(x, y, z).applyQuaternion(quat)
+        return [v.x + p.position[0], v.y + p.position[1], v.z + p.position[2]]
+      })
+      geo.dispose()
+    }
+    exportLoadingStage.value = '加载 CAD 内核…'
+    exportLoadingPct.value = 35
+    const blob = await exportMesh(merged, 'step', (stage, pct) => {
+      exportLoadingStage.value = stage
+      exportLoadingPct.value = Math.round(35 + pct * 0.65)
+    })
+    downloadBlob(blob, `AI-Assembly-${m.assembly.gears.length}gears.step`)
+    ElMessage.success('装配体导出成功')
+  } catch (e) {
+    ElMessage.error(`导出失败：${(e as Error).message}`)
+  } finally {
+    exportLoadingVisible.value = false
+  }
+}
 </script>
 
 <template>
   <el-dialog
     :model-value="modelValue"
-    width="60%"
+    :width="dialogWidth"
     destroy-on-close
-    class="ai-chat-dialog"
+    :class="dialogClass"
+    :close-on-click-modal="!compactMode"
+    :close-on-press-escape="!compactMode"
+    :lock-scroll="!compactMode"
+    :append-to-body="!compactMode"
+    :teleported="!compactMode"
+    :show-close="false"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <template #header>
@@ -136,13 +219,58 @@ const modelLineText = () => {
           <span class="title-badge"><el-icon><MagicStick /></el-icon></span>
           <span class="title-text"><em>AI</em> 齿轮生成</span>
         </span>
-        <span class="chat-sub">多轮对话 · 描述传动方案，AI 输出齿轮组并自动装配预览</span>
+        <span class="chat-sub" v-if="!compactMode">多轮对话 · 描述传动方案，AI 输出齿轮组并自动装配预览</span>
+        <div class="header-ops">
+          <button
+            class="compact-toggle-btn"
+            :title="compactMode ? '展开模式' : '精简模式'"
+            @click="toggleCompact"
+          >
+            <!-- 正常(宽)状态显示竖向矩形，精简(窄)状态显示正常窗口：图标代表目标形态，更直观 -->
+            <svg
+              v-if="compactMode"
+              class="hdr-icon"
+              viewBox="0 0 16 16"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2.5" y="3" width="11" height="10" rx="1.4" />
+              <path d="M2.5 6h11" />
+            </svg>
+            <svg
+              v-else
+              class="hdr-icon"
+              viewBox="0 0 16 16"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="5" y="2" width="6" height="12" rx="1.2" />
+            </svg>
+          </button>
+          <button
+            class="dialog-close-btn"
+            title="关闭"
+            @click="emit('update:modelValue', false)"
+          >
+            <el-icon :size="16"><Close /></el-icon>
+          </button>
+        </div>
       </div>
     </template>
 
     <div class="chat-shell">
       <!-- 左侧：新建会话 + 会话面板（凹陷） + 大模型设置 -->
-      <aside class="chat-side">
+      <aside v-if="!compactMode" class="chat-side">
         <el-button type="primary" class="new-chat-btn" :icon="Plus" @click="store.newSession()">
           新建会话
         </el-button>
@@ -205,7 +333,7 @@ const modelLineText = () => {
 
             <template v-for="m in store.activeSession.messages" :key="m.id">
               <!-- 用户消息：文本气泡 -->
-              <div v-if="m.role === 'user'" class="row user">
+              <div v-if="m.role === 'user'" class="row user msg-enter">
                 <div class="user-body">
                   <div class="user-bubble">{{ m.text }}</div>
                   <div class="msg-toolbar">
@@ -218,7 +346,7 @@ const modelLineText = () => {
               </div>
 
               <!-- AI 消息：文字 + 预览画布 + 变化参数 -->
-              <div v-else class="row ai">
+              <div v-else class="row ai msg-enter">
                 <div class="ai-avatar"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.05.24.26.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64l-2.11-1.65Z"/></svg></div>
                 <div class="ai-body">
                   <el-alert
@@ -236,7 +364,7 @@ const modelLineText = () => {
                       <el-icon v-if="m.text" class="msg-op" title="复制" @click="copyText(m.text)"><CopyDocument /></el-icon>
                     </div>
                     <div v-if="m.assembly" class="ai-canvas-card">
-                      <GearViewer :assembly="m.assembly" />
+                      <GearViewer :assembly="m.assembly" @export-assembly="exportAssembly(m)" />
                     </div>
                     <el-descriptions
                       v-if="m.changes && m.changes.length"
@@ -306,6 +434,11 @@ const modelLineText = () => {
 
     <AiSettingsDialog v-model="settingsOpen" @saved="settings = loadAiSettings()" />
   </el-dialog>
+  <ExportLoading
+    :visible="exportLoadingVisible"
+    :percentage="exportLoadingPct"
+    :stage="exportLoadingStage"
+  />
 </template>
 
 <style scoped>
@@ -313,6 +446,9 @@ const modelLineText = () => {
   display: flex;
   align-items: center;
   gap: 14px;
+  /* 撑满 .el-dialog__header 整行，否则右侧 header-ops 的 margin-left:auto 无可用空间，按钮贴不右 */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .chat-title {
@@ -434,23 +570,32 @@ const modelLineText = () => {
 .session-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 8px 6px;
   border-radius: 8px;
   cursor: pointer;
   color: #4b5563;
   font-size: 13px;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+  position: relative;
 }
 
 .session-item:hover {
   background: #f1f4f8;
 }
 
+.session-item:hover .s-ops {
+  background: linear-gradient(to right, transparent, #f1f4f8 12px);
+}
+
 .session-item.active {
   background: var(--el-color-primary-light-9);
   color: var(--el-color-primary-dark-2);
   font-weight: 600;
+}
+
+.session-item.active .s-ops {
+  background: linear-gradient(to right, transparent, var(--el-color-primary-light-9) 12px);
 }
 
 .s-ico {
@@ -471,11 +616,14 @@ const modelLineText = () => {
   display: flex;
   gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s var(--ease-out);
+  position: absolute;
+  right: 2px;
+  background: linear-gradient(to right, transparent, #eef1f6 12px);
+  padding-left: 12px;
 }
 
-.session-item:hover .s-ops,
-.session-item.active .s-ops {
+.session-item:hover .s-ops {
   opacity: 1;
 }
 
@@ -642,7 +790,7 @@ const modelLineText = () => {
   font-size: 13px;
   color: #8b95a5;
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color 0.15s var(--ease-out);
 }
 
 .msg-op:hover {
@@ -739,12 +887,84 @@ const modelLineText = () => {
 .chat-input :deep(.el-textarea__inner) {
   border-radius: 12px;
 }
+
+/* 消息入场动画：滑入 + 淡入 */
+.msg-enter {
+  animation: msgSlideIn 0.25s var(--ease-out) backwards;
+}
+
+@keyframes msgSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 右上角按钮组：精简切换 + 关闭，由 header 的 align-items:center 垂直居中 */
+.header-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex: none;
+}
+
+/* 精简模式切换按钮 / 关闭按钮：统一样式 */
+.compact-toggle-btn,
+.dialog-close-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #909399;
+  transition: color 0.2s, background-color 0.2s;
+  border-radius: 50%;
+}
+
+.compact-toggle-btn:hover,
+.dialog-close-btn:hover {
+  color: var(--el-color-primary);
+  background: rgba(110, 125, 150, 0.1);
+}
+
+/* 精简模式下对话流面板优化 */
+.chat-compact .flow-inner {
+  padding: 16px 14px 24px;
+}
+
+.chat-compact .ai-canvas-card {
+  max-width: 100%;
+}
+
+.chat-compact .ai-changes {
+  max-width: 100%;
+}
 </style>
 
 <style>
 /* ---------- 悬浮对话框骨架（90% 大小）----------
  * class 落在 .el-dialog 元素自身上，scoped 选择器无法命中，
  * 故用自定义类名隔离的非 scoped 样式块 */
+
+/* 精简模式下 overlay 不拦截主页面点击，且隐藏遮罩背景 */
+.el-overlay:has(.ai-chat-compact) {
+  pointer-events: none !important;
+  background-color: transparent !important;
+}
+
+.el-overlay:has(.ai-chat-compact) .el-dialog {
+  pointer-events: auto;
+}
+
 .ai-chat-dialog {
   height: 90vh;
   margin: 5vh auto;
@@ -760,18 +980,46 @@ const modelLineText = () => {
   background-color: #e8edf3;
 }
 
+/* 精简模式：右侧停靠，无留白 */
+.ai-chat-compact.el-dialog {
+  margin: 0 !important;
+  margin-left: auto !important;
+  top: 0 !important;
+  height: 100vh;
+  border-radius: 14px 0 0 14px;
+}
+
+.ai-chat-compact.el-dialog .el-dialog__body {
+  padding: 12px 0 0;
+}
+
 .ai-chat-dialog .el-dialog__header {
+  position: relative;
   margin-right: 0;
-  height: 44px;
+  height: 40px;
   display: flex;
   align-items: center;
+  /* 去掉 Element Plus 默认左右内边距：左侧留标题间距，右侧不留，让按钮组贴右 */
+  padding: 0 0 0 16px;
   border-bottom: 1px solid rgba(163, 177, 198, 0.45);
   background: transparent;
 }
 
 .ai-chat-dialog .el-dialog__headerbtn {
+  position: absolute;
   top: 0;
-  height: 44px;
+  right: 0;
+  height: 46px;
+  width: 46px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-chat-dialog .el-dialog__headerbtn .el-dialog__close {
+  font-size: 16px;
+  margin: 0;
 }
 
 .ai-chat-dialog .el-dialog__body {

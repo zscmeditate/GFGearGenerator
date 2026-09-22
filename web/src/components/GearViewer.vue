@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, watch, ref, computed } from 'vue'
-import { Bottom, RefreshRight, View } from '@element-plus/icons-vue'
+import { Bottom, Download, RefreshRight, View } from '@element-plus/icons-vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { useGearStore } from '../stores/gear'
@@ -16,6 +16,7 @@ const store = useGearStore()
 
 /* ─── 装配模式：传入 assembly 快照时渲染多齿轮（复用本组件的渲染/视角能力） ─── */
 const props = defineProps<{ assembly?: AiAssemblySnapshot | null }>()
+const emit = defineEmits<{ (e: 'export-assembly'): void }>()
 const isAssembly = computed(() => !!props.assembly)
 
 const containerEl = ref<HTMLDivElement | null>(null)
@@ -31,23 +32,37 @@ let gridHelper: THREE.GridHelper
 let assemblyGroup: THREE.Group | null = null
 let assemblyMaterial: THREE.MeshMatcapMaterial | null = null
 
+/* ─── 装配模式可见性优化：画布被遮挡时暂停渲染，完全可见时才恢复 rAF ───
+ * AI 会话里每条带装配的消息都会挂载一个 GearViewer，全部同时渲染浪费 GPU。
+ * 沿用旧 AiGearCanvas 的约定：可见比例 ≥85% 启动渲染循环，≤40% 停止
+ * （画面定格在最后一帧），中间区间保持当前状态，防止滚动边界抖动反复启停。 */
+const MOUNT_RATIO = 0.85
+const STOP_RATIO = 0.4
+let io: IntersectionObserver | null = null
+
 /* ─── 灯光引用（主题切换时平滑过渡） ─── */
 let keyLight: THREE.DirectionalLight
 let raf = 0
 let resizeObs: ResizeObserver
 
 /* ─── 齿轮类型切换过渡：双 Mesh 交叉淡入淡出 ───
- * 点击类型后旧模型立即开始淡出（GEAR_FADE_OUT_MS）；新几何到达后启动交叉窗口
- * （GEAR_CROSS_MS）：新模型淡入、旧模型同步收净。全程保持用户当前视角，
- * 不做任何视口操作（需要标准取景时点"重置取景"）。 */
-const GEAR_FADE_OUT_MS = 200
-const GEAR_CROSS_MS = 200
+ *
+ * Emil Kowalski 设计工程技巧：
+ * 1. Asymmetric timing — 退出快（120ms，用户已预期变化）/ 进入慢（250ms，用户在看新模型）
+ * 2. Scale bounce — 新模型从 scale(0.96) 放大到 1.0，给"物理实体出现"的感觉
+ * 3. Exponential ease-out — 退出果断（快起慢停），进入有冲击力（快起慢停）
+ * 4. 消除空窗 — 旧模型淡到 0 后立即释放，新模型无缝接力
+ * 5. Warmup — 先以 opacity≈0 渲染 100ms，GPU 完成完整渲染后再开始动画 */
+const GEAR_FADE_OUT_MS = 120  /* 退出快：用户已预期变化 */
+const GEAR_FADE_IN_MS = 250   /* 进入慢：用户在注视新模型 */
+const GEAR_WARMUP_MS = 100   /* 预热：scale≈0 渲染时长，确保 GPU 完成几何上传 */
 /** idle：无过渡；switching：淡出等待 / 交叉进行中 */
 let switchPhase: 'idle' | 'switching' = 'idle'
 /** 每次切换自增，作废上一代过渡的 rAF 回调，支持连续快速切换 */
 let switchToken = 0
 let fadeOutRaf = 0
 let crossRaf = 0
+let warmupTimer = 0
 /** 正在淡出的旧模型（可能是上一代还没淡入完的"新模型"，连点时续接调头） */
 let outMesh: THREE.Mesh | null = null
 
@@ -100,7 +115,7 @@ let rimLight2: THREE.DirectionalLight
 let currentSceneConfig: SceneLightingConfig | null = null
 
 /* ─── 过渡动画 ─── */
-const TRANSITION_DURATION = 600 // ms
+const TRANSITION_DURATION = 400 // ms
 let transitionStart = 0
 let transitionFrom: SceneLightingConfig | null = null
 let transitionTo: SceneLightingConfig | null = null
@@ -121,6 +136,11 @@ function lerpColor(a: number, b: number, t: number): number {
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
+
+/** 指数缓出：快起慢停，用于退出（果断消失）和进入（有冲击力的落地感） */
+function easeOutExpo(t: number): number {
+  return t === 1 ? 1 : 1 - Math.pow(2, -10 * t)
 }
 
 /* ─── 网格颜色（规范 7：中心线主色、格线辅色，均低对比） ───
@@ -405,7 +425,7 @@ function initScene() {
   })
   resizeObs.observe(el)
 
-  animate()
+  startLoop()
 }
 
 function animate() {
@@ -425,6 +445,30 @@ function animate() {
     pushFpsSample(fps.value)
     fpsFrames = 0
     fpsWindowStart = now
+  }
+}
+
+/** 启动渲染循环（幂等：已在运行时直接返回） */
+function startLoop() {
+  if (raf) return
+  animate()
+}
+
+/** 停止渲染循环：画布定格在最后一帧（装配模式被遮挡时暂停） */
+function stopLoop() {
+  if (raf) {
+    cancelAnimationFrame(raf)
+    raf = 0
+  }
+}
+
+/* ─── 装配模式可见性监听：完全露出才渲染，被挡住就暂停 ─── */
+function onIo(entries: IntersectionObserverEntry[]) {
+  if (!isAssembly.value) return
+  for (const e of entries) {
+    const ratio = e.intersectionRatio
+    if (ratio >= MOUNT_RATIO) startLoop()
+    else if (ratio <= STOP_RATIO) stopLoop()
   }
 }
 
@@ -612,27 +656,22 @@ function disposeGearMesh(m: THREE.Mesh) {
 
 /* ─── 双 Mesh 交叉过渡 ─── */
 
-/** 旧模型淡出；从当前 opacity 续接，连点调头也自然 */
+/** 旧模型缩出：快（120ms）+ easeOutExpo，从当前尺寸缩到 0.01 */
 function startFadeOut(token: number) {
   const m = outMesh
   if (!m) return
-  const mat = m.material as THREE.MeshMatcapMaterial
-  // 透明期不写深度：即使 opacity=0 仍挂在场景，也不会遮挡新模型
-  mat.transparent = true
-  mat.depthWrite = false
   m.castShadow = false
-  m.renderOrder = 1
 
-  const fromOp = mat.opacity
-  const duration = Math.max(80, GEAR_FADE_OUT_MS * Math.max(fromOp, 0.0001))
+  const fromScale = m.scale.x
+  const duration = Math.max(60, GEAR_FADE_OUT_MS * Math.max(fromScale, 0.0001))
   const start = performance.now()
 
   const tick = () => {
     if (token !== switchToken || outMesh !== m) return
     const p = Math.min((performance.now() - start) / duration, 1)
-    mat.opacity = fromOp * (1 - easeInOutCubic(p))
+    const s = fromScale * (1 - easeOutExpo(p))
+    m.scale.setScalar(Math.max(0.001, s))
     if (p < 1) fadeOutRaf = requestAnimationFrame(tick)
-    // 到 0 后保留在场景（不可见/不写深度/不投影），由 cross 收尾统一释放
   }
   fadeOutRaf = requestAnimationFrame(tick)
 }
@@ -642,6 +681,7 @@ function beginGearSwitch() {
   const token = ++switchToken
   cancelAnimationFrame(fadeOutRaf)
   cancelAnimationFrame(crossRaf)
+  window.clearTimeout(warmupTimer)
 
   // 首屏几何尚未构建：无物可淡出，保持 idle，首帧直接显示
   if (!gearMesh && !outMesh) return
@@ -661,52 +701,46 @@ function beginGearSwitch() {
   startFadeOut(token)
 }
 
-/** 新几何到达：建新模型，启动 GEAR_CROSS_MS 交叉窗口（淡入；相机保持静止） */
+/** 新几何到达：纯 scale 动画（0.01→1.0），完全不透明，无 z-fighting */
 function startCrossFade(token: number, flat: THREE.BufferGeometry) {
-  // 仅同步阴影范围/网格地面到新模型，不动相机
   applyViewEnv(computeView(flat))
 
   const mat = createGearMaterial()
-  mat.transparent = true
-  mat.opacity = 0
-  mat.depthWrite = false
   const m = new THREE.Mesh(flat, mat)
   m.castShadow = false
   m.receiveShadow = true
-  m.renderOrder = 2
+  // 从极小尺寸开始：用户几乎看不到，GPU 已在完整渲染
+  m.scale.setScalar(0.001)
   scene.add(m)
   gearMesh = m
 
   const old = outMesh
-  const oldFromOp = old ? (old.material as THREE.MeshMatcapMaterial).opacity : 0
 
-  const start = performance.now()
-  const tick = () => {
+  // 等 100ms：mesh 以 scale=0.01 在场景中被完整渲染（不透明），GPU 完成几何上传
+  warmupTimer = window.setTimeout(() => {
     if (token !== switchToken) return
-    const p = Math.min((performance.now() - start) / GEAR_CROSS_MS, 1)
-    const e = easeInOutCubic(p)
+    const start = performance.now()
+    const tick = () => {
+      if (token !== switchToken) return
+      const p = Math.min((performance.now() - start) / GEAR_FADE_IN_MS, 1)
+      const e = easeOutExpo(p)
 
-    // 新模型淡入；相机保持静止，不做任何视口操作
-    mat.opacity = e
-    // 旧模型在同一窗口内兜底收净（几何晚到时它可能已自行淡到 0）
-    if (old && old.parent) {
-      ;(old.material as THREE.MeshMatcapMaterial).opacity = oldFromOp * (1 - e)
+      // 新模型：纯 scale 放大
+      m.scale.setScalar(0.001 + 0.999 * e)
+
+      if (p < 1) {
+        crossRaf = requestAnimationFrame(tick)
+        return
+      }
+
+      if (old && old.parent) disposeGearMesh(old)
+      if (outMesh === old) outMesh = null
+      m.castShadow = true
+      m.scale.setScalar(1)
+      switchPhase = 'idle'
     }
-
-    if (p < 1) {
-      crossRaf = requestAnimationFrame(tick)
-      return
-    }
-
-    if (old && old.parent) disposeGearMesh(old)
-    if (outMesh === old) outMesh = null
-    mat.opacity = 1
-    mat.transparent = false
-    mat.depthWrite = true
-    m.castShadow = true
-    switchPhase = 'idle'
-  }
-  crossRaf = requestAnimationFrame(tick)
+    crossRaf = requestAnimationFrame(tick)
+  }, GEAR_WARMUP_MS)
 }
 
 function updateGear() {
@@ -778,12 +812,20 @@ defineExpose({
 onMounted(() => {
   initScene()
   initAssembly()
+  // 装配模式：监听可见性，画布被遮挡时暂停渲染循环（主视图始终渲染）
+  if (isAssembly.value) {
+    io = new IntersectionObserver(onIo, { threshold: [0, STOP_RATIO, MOUNT_RATIO, 1] })
+    if (containerEl.value) io.observe(containerEl.value)
+  }
 })
 onBeforeUnmount(() => {
+  io?.disconnect()
+  io = null
   cancelAnimationFrame(raf)
   cancelAnimationFrame(transitionRaf)
   cancelAnimationFrame(fadeOutRaf)
   cancelAnimationFrame(crossRaf)
+  window.clearTimeout(warmupTimer)
   if (outMesh) disposeGearMesh(outMesh)
   window.clearTimeout(slideTimer)
   bgObserver?.disconnect()
@@ -796,7 +838,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="containerEl" class="gear-viewer">
-    <!-- 装配模式悬浮控件：左上角视角切换 / 右上角重新装配 / 右下角俯视 -->
+    <!-- 装配模式悬浮控件：左上角视角切换 / 右上角重新装配 / 右下角导出 -->
     <template v-if="isAssembly">
       <el-button
         class="viewer-fab view-toggle"
@@ -818,6 +860,13 @@ onBeforeUnmount(() => {
         :icon="Bottom"
         title="俯视图"
         @click="topView"
+      />
+      <el-button
+        class="viewer-fab export-assembly-fab"
+        circle
+        :icon="Download"
+        title="导出装配体"
+        @click="emit('export-assembly')"
       />
     </template>
 
@@ -857,23 +906,22 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 50%;
   box-shadow: 0 3px 12px rgba(110, 125, 150, 0.25);
-  transition: color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.viewer-fab:hover,
-.viewer-fab:focus {
-  color: var(--el-color-primary);
-  background: #fff;
-  border-color: transparent;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(110, 125, 150, 0.32);
+  transition: color 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out);
 }
 
 .viewer-fab:active {
-  color: var(--el-color-primary-dark-2);
-  background: #fff;
-  border-color: transparent;
-  transform: translateY(0);
+  transform: scale(0.93);
+  box-shadow: 0 3px 10px rgba(110, 125, 150, 0.25);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .viewer-fab:hover,
+  .viewer-fab:focus {
+    color: var(--el-color-primary);
+    background: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 18px rgba(110, 125, 150, 0.32);
+  }
 }
 
 .viewer-fab :deep(.el-icon) {
@@ -891,6 +939,11 @@ onBeforeUnmount(() => {
 }
 
 .top-fab {
+  top: 14px;
+  left: 54px;
+}
+
+.export-assembly-fab {
   bottom: 14px;
   right: 14px;
 }

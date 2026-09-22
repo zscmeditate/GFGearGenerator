@@ -23,6 +23,10 @@
   --app-shadow-inset: inset 7px 7px 18px rgba(110, 125, 150, 0.22),
     inset -7px -7px 18px rgba(255, 255, 255, 0.75);
 
+  /* 自定义缓动曲线：比 CSS 默认 ease 更有力度 */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
   /* 3D 场景桥接变量：GearViewer 读取它匹配场景光照预设 */
   --bg-color: #e8edf3;
 }
@@ -48,6 +52,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
   /* 整区内凹：白色卡片如浮于凹槽之中，边缘保留柔和过渡 */
   box-shadow: var(--app-shadow-inset);
+  /* 主题色切换时 2D UI 元素平滑过渡，与 3D 场景灯光过渡统一 */
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
 }
 
 /* ---------- 整体布局：Header + (Left / Scene / Right) ---------- */
@@ -200,17 +206,19 @@ body {
   font-weight: 600;
   letter-spacing: 0.5px;
   box-shadow: 0 6px 16px rgba(231, 139, 175, 0.4);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.ai-capsule-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(231, 139, 175, 0.5);
+  transition: transform 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out);
 }
 
 .ai-capsule-btn:active {
-  transform: translateY(0);
+  transform: scale(0.93);
   box-shadow: 0 4px 12px rgba(231, 139, 175, 0.4);
+}
+
+/* 仅鼠标设备 hover 上浮，触屏不触发（避免点击时先上浮再缩回的闪烁） */
+@media (hover: hover) and (pointer: fine) {
+  .ai-capsule-btn:hover {
+    box-shadow: 0 8px 20px rgba(231, 139, 175, 0.5);
+  }
 }
 
 .app-body {
@@ -268,6 +276,27 @@ body {
 .stack-panels .el-descriptions__body .el-descriptions__table .el-descriptions__cell {
   padding: 4px 8px;
   text-align: center;
+}
+
+/* 右侧工具面板交错入场动画 */
+.stack-panels .el-card {
+  animation: panelSlideIn 0.3s var(--ease-out) backwards;
+}
+.stack-panels .el-card:nth-child(1) { animation-delay: 0ms; }
+.stack-panels .el-card:nth-child(2) { animation-delay: 60ms; }
+.stack-panels .el-card:nth-child(3) { animation-delay: 120ms; }
+.stack-panels .el-card:nth-child(4) { animation-delay: 180ms; }
+.stack-panels .el-card:nth-child(5) { animation-delay: 240ms; }
+
+@keyframes panelSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ---------- 卡片统一风格：白底 / 大圆角 / 柔影 / 无重描边 ---------- */
@@ -420,33 +449,6 @@ body {
   box-shadow: 0 2px 8px rgba(110, 125, 150, 0.1);
 }
 
-.export-mask {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(232, 237, 243, 0.55);
-}
-
-.export-mask .export-card.el-card {
-  width: 300px;
-  text-align: center;
-  /* 与 .app-brand 一致的新拟态凹陷效果 */
-  background-color: #e0e6ed;
-  border: none;
-  border-radius: 14px;
-  box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.55),
-              inset -3px -3px 6px rgba(255, 255, 255, 0.85);
-}
-
-.export-stage {
-  margin-top: 10px;
-  font-size: 13px;
-  color: #606266;
-}
-
 /* ---------- 右下角浮动：主题色切换 ---------- */
 /* 提高选择器优先级以覆盖 Element Plus .el-button.is-circle 的 width:32px，保持正圆 */
 .el-button.theme-fab {
@@ -462,13 +464,19 @@ body {
   border: none;
   border-radius: 50%;
   box-shadow: var(--app-shadow-float);
-  transition: color 0.18s ease, transform 0.18s ease;
+  transition: color 0.18s var(--ease-out), transform 0.18s var(--ease-out);
 }
 
-.theme-fab:hover {
-  color: var(--el-color-primary);
-  transform: translateY(-2px);
-  background: #fff;
+.theme-fab:active {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme-fab:hover {
+    color: var(--el-color-primary);
+    transform: translateY(-2px);
+    background: #fff;
+  }
 }
 
 .theme-popover-title {
@@ -491,11 +499,17 @@ body {
   border: 2px solid #fff;
   outline: 1px solid rgba(150, 160, 175, 0.35);
   cursor: pointer;
-  transition: box-shadow 0.16s ease, transform 0.16s ease;
+  transition: box-shadow 0.16s var(--ease-out), transform 0.16s var(--ease-out);
 }
 
-.theme-swatch:hover {
-  transform: translateY(-1px);
+.theme-swatch:active {
+  transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme-swatch:hover {
+    transform: translateY(-1px);
+  }
 }
 
 .theme-swatch.is-active {
@@ -519,4 +533,15 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--el-color-primary);
+}
+
+/* ---------- 无障碍：减弱动效 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -201,12 +201,14 @@ export function budgetFor(z: number, quality: 'preview' | 'high'): SegmentBudget
     tipArc: Math.max(3, Math.floor(f / 1.4)),
     rootArc: Math.max(4, Math.floor(720 / z / 3) + 2)
   }
-  if (quality === 'preview') return base
-  return {
-    flank: base.flank * 5,
-    tipArc: base.tipArc * 5,
-    rootArc: base.rootArc * 5
+  if (quality === 'preview') {
+    return {
+      flank: Math.max(2, Math.floor(base.flank / 3)),
+      tipArc: Math.max(2, Math.floor(base.tipArc / 3)),
+      rootArc: Math.max(2, Math.floor(base.rootArc / 3))
+    }
   }
+  return base
 }
 
 /**

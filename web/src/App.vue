@@ -21,6 +21,7 @@ import type { Quality } from './gear/geometry'
 import GearViewer from './components/GearViewer.vue'
 import ParamPanel from './components/ParamPanel.vue'
 import AiChat from './components/AiChat.vue'
+import ExportLoading from './components/ExportLoading.vue'
 import { exportMesh, downloadBlob, type ExportFormat } from './cad/exporters'
 import { themePresets, applyPrimary, useThemeColor } from './composables/useThemeColor'
 
@@ -279,13 +280,6 @@ async function doExport(fmt: ExportFormat) {
               <span>滚轮 缩放</span>
               <span>右键 平移</span>
             </div>
-
-            <div v-if="store.exporting" class="export-mask">
-              <el-card class="export-card" shadow="always">
-                <el-progress :percentage="exportPct" :stroke-width="10" :format="formatExportPct" />
-                <div class="export-stage">{{ exportStage }}</div>
-              </el-card>
-            </div>
           </div>
         </el-card>
       </el-main>
@@ -421,6 +415,7 @@ async function doExport(fmt: ExportFormat) {
     </el-popover>
 
     <AiChat v-model="aiOpen" />
+    <ExportLoading :visible="store.exporting" :percentage="exportPct" :stage="exportStage" />
   </el-container>
 </template>
 
@@ -434,7 +429,7 @@ async function doExport(fmt: ExportFormat) {
 /* 场景标题胶囊：切换齿轮类型时整个胶囊（白底+标题+标签）纯透明度渐入渐出，无缩放/位移 */
 .scene-header-fade-enter-active,
 .scene-header-fade-leave-active {
-  transition: opacity 0.22s ease;
+  transition: opacity 0.22s var(--ease-out);
 }
 
 .scene-header-fade-enter-from,
@@ -472,9 +467,9 @@ async function doExport(fmt: ExportFormat) {
   font-size: 13px;
   font-weight: 500;
   transition:
-    background-color 0.18s ease,
-    color 0.18s ease,
-    box-shadow 0.18s ease;
+    background-color 0.18s var(--ease-out),
+    color 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out);
 }
 
 /* 仅整组的首尾项跟随组外圈圆角（边框内缘 11px = 12 − 1），中间项保持直角连续 */
@@ -521,7 +516,7 @@ async function doExport(fmt: ExportFormat) {
   );
   box-shadow: inset 0 -2px 0 0 var(--el-color-primary);
   opacity: 0;
-  transition: opacity 0.18s ease;
+  transition: opacity 0.18s var(--ease-out);
 }
 
 .gear-type-group :deep(.el-radio-button.is-active .el-radio-button__inner)::before {
@@ -544,7 +539,7 @@ async function doExport(fmt: ExportFormat) {
   height: 100%;
   object-fit: contain;
   opacity: 0.72;
-  transition: opacity 0.18s ease;
+  transition: opacity 0.18s var(--ease-out);
   user-select: none;
   -webkit-user-drag: none;
 }
@@ -562,11 +557,14 @@ async function doExport(fmt: ExportFormat) {
   -webkit-mask-size: contain;
   mask-size: contain;
   opacity: 0;
-  transition: opacity 0.18s ease;
+  transition: opacity 0.18s var(--ease-out);
 }
 
-.gear-type-group :deep(.el-radio-button__inner:hover .type-ico-img) {
-  opacity: 0.95;
+/* 仅鼠标设备 hover 时图标变亮，触屏不触发 */
+@media (hover: hover) and (pointer: fine) {
+  .gear-type-group :deep(.el-radio-button__inner:hover .type-ico-img) {
+    opacity: 0.95;
+  }
 }
 
 .gear-type-group :deep(.el-radio-button.is-active .type-ico-img) {
@@ -637,26 +635,23 @@ async function doExport(fmt: ExportFormat) {
   border-radius: 50%;
   box-shadow: 0 3px 12px rgba(110, 125, 150, 0.25);
   transition:
-    color 0.18s ease,
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.top-view-fab:hover,
-.top-view-fab:focus {
-  color: var(--el-color-primary);
-  background: #fff;
-  border-color: transparent;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(110, 125, 150, 0.32);
+    color 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out);
 }
 
 .top-view-fab:active {
-  color: var(--el-color-primary-dark-2);
-  background: #fff;
-  border-color: transparent;
-  transform: translateY(0);
+  transform: scale(0.93);
   box-shadow: 0 3px 10px rgba(110, 125, 150, 0.25);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .top-view-fab:hover,
+  .top-view-fab:focus {
+    color: var(--el-color-primary);
+    background: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 18px rgba(110, 125, 150, 0.32);
+  }
 }
 
 .top-view-fab :deep(.el-icon) {
