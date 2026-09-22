@@ -23,6 +23,7 @@ import * as THREE from 'three'
 import GearViewer from './GearViewer.vue'
 import AiSettingsDialog from './AiSettingsDialog.vue'
 import ExportLoading from './ExportLoading.vue'
+import { usePressScale } from '../composables/usePressScale'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
@@ -34,6 +35,7 @@ const draftInputRef = ref<{ focus: () => void } | null>(null)
 const flowEl = ref<HTMLDivElement | null>(null)
 const settingsOpen = ref(false)
 const settings = ref<AiSettings>(loadAiSettings())
+const compactPress = usePressScale(0.88)
 
 /* ---------- 精简模式 ---------- */
 const compactMode = ref(localStorage.getItem('gf-ai-compact') === '1')
@@ -41,8 +43,40 @@ const dialogWidth = computed(() => compactMode.value ? '30%' : '60%')
 const dialogClass = computed(() => compactMode.value ? 'ai-chat-dialog ai-chat-compact' : 'ai-chat-dialog')
 
 function toggleCompact() {
-  compactMode.value = !compactMode.value
-  localStorage.setItem('gf-ai-compact', compactMode.value ? '1' : '0')
+  const el = document.querySelector('.ai-chat-dialog') as HTMLElement | null
+  if (!el) {
+    compactMode.value = !compactMode.value
+    localStorage.setItem('gf-ai-compact', compactMode.value ? '1' : '0')
+    return
+  }
+  const goingCompact = !compactMode.value
+  const targetWidth = goingCompact ? '30%' : '60%'
+
+  // 第一阶段：整个窗口缓慢淡出
+  el.style.transition = 'opacity 280ms cubic-bezier(0.4, 0, 1, 1)'
+  el.style.opacity = '0'
+
+  setTimeout(() => {
+    // 淡出完毕，切换模式 + 平滑改变宽度（对话框仍透明，用户看不到重排）
+    compactMode.value = goingCompact
+    localStorage.setItem('gf-ai-compact', goingCompact ? '1' : '0')
+    el.style.transition = 'width 260ms var(--ease-out)'
+    el.style.width = targetWidth
+    // 等宽度动画结束，遮罩 CSS 动画也恰好延迟 260ms 后开始
+    // 此时清除内联背景色，让 CSS 动画接管遮罩淡入
+    setTimeout(() => {
+      el.style.removeProperty('background-color')
+      // 对话框与遮罩同时开始淡入
+      el.style.transition = 'opacity 320ms cubic-bezier(0, 0, 0.2, 1)'
+      el.style.opacity = '1'
+      // 清理内联样式
+      setTimeout(() => {
+        el.style.width = ''
+        el.style.transition = ''
+        el.style.opacity = ''
+      }, 330)
+    }, 260)
+  }, 280)
 }
 
 /* ---------- 装配体导出 Loading ---------- */
@@ -219,12 +253,18 @@ async function exportAssembly(m: AiChatMessage) {
           <span class="title-badge"><el-icon><MagicStick /></el-icon></span>
           <span class="title-text"><em>AI</em> 齿轮生成</span>
         </span>
-        <span class="chat-sub" v-if="!compactMode">多轮对话 · 描述传动方案，AI 输出齿轮组并自动装配预览</span>
+        <Transition name="chat-sub-fade" mode="out-in">
+          <span class="chat-sub" v-if="!compactMode" key="sub">多轮对话 · 描述传动方案，AI 输出齿轮组并自动装配预览</span>
+        </Transition>
         <div class="header-ops">
           <button
             class="compact-toggle-btn"
+            :class="{ pressed: compactPress.pressed.value }"
             :title="compactMode ? '展开模式' : '精简模式'"
             @click="toggleCompact"
+            @mousedown="compactPress.onMouseDown"
+            @mouseup="compactPress.onMouseUp"
+            @mouseleave="compactPress.onMouseUp"
           >
             <!-- 正常(宽)状态显示竖向矩形，精简(窄)状态显示正常窗口：图标代表目标形态，更直观 -->
             <svg
@@ -268,9 +308,9 @@ async function exportAssembly(m: AiChatMessage) {
       </div>
     </template>
 
-    <div class="chat-shell">
+    <div class="chat-shell" >
       <!-- 左侧：新建会话 + 会话面板（凹陷） + 大模型设置 -->
-      <aside v-if="!compactMode" class="chat-side">
+        <aside v-show="!compactMode" class="chat-side">
         <el-button type="primary" class="new-chat-btn" :icon="Plus" @click="store.newSession()">
           新建会话
         </el-button>
@@ -926,14 +966,31 @@ async function exportAssembly(m: AiChatMessage) {
   border: none;
   cursor: pointer;
   color: #909399;
-  transition: color 0.2s, background-color 0.2s;
   border-radius: 50%;
+  transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out);
 }
 
-.compact-toggle-btn:hover,
-.dialog-close-btn:hover {
-  color: var(--el-color-primary);
-  background: rgba(110, 125, 150, 0.1);
+@media (hover: hover) and (pointer: fine) {
+  .compact-toggle-btn:hover,
+  .dialog-close-btn:hover {
+    color: var(--el-color-primary);
+    background: rgba(110, 125, 150, 0.1);
+  }
+}
+
+.compact-toggle-btn:active,
+.compact-toggle-btn.pressed {
+  transform: scale(0.88);
+}
+
+/* 切换图标旋转动画：展开↔精简时图标有 90° 旋转过渡，视觉上暗示"翻转" */
+.compact-toggle-btn .hdr-icon {
+  transition: transform 260ms var(--ease-out);
+}
+
+.compact-toggle-btn:active .hdr-icon,
+.compact-toggle-btn.pressed .hdr-icon {
+  transform: rotate(90deg);
 }
 
 /* 精简模式下对话流面板优化 */
@@ -948,6 +1005,16 @@ async function exportAssembly(m: AiChatMessage) {
 .chat-compact .ai-changes {
   max-width: 100%;
 }
+
+/* ---------- 标题副标淡入淡出 ---------- */
+.chat-sub-fade-enter-active,
+.chat-sub-fade-leave-active {
+  transition: opacity 180ms var(--ease-out);
+}
+.chat-sub-fade-enter-from,
+.chat-sub-fade-leave-to {
+  opacity: 0;
+}
 </style>
 
 <style>
@@ -955,10 +1022,23 @@ async function exportAssembly(m: AiChatMessage) {
  * class 落在 .el-dialog 元素自身上，scoped 选择器无法命中，
  * 故用自定义类名隔离的非 scoped 样式块 */
 
-/* 精简模式下 overlay 不拦截主页面点击，且隐藏遮罩背景 */
+/* overlay：遮罩背景始终可过渡，精简模式下不拦截点击 */
+/* 非精简模式：遮罩延迟 260ms 再淡入，与对话框 fade-in 同步（等宽度动画结束） */
+.el-overlay:has(.ai-chat-dialog) {
+  background-color: transparent;
+}
+
+.el-overlay:has(.ai-chat-dialog):not(:has(.ai-chat-compact)) {
+  animation: overlayFadeIn 300ms var(--ease-out) 260ms forwards;
+}
+
+@keyframes overlayFadeIn {
+  from { background-color: transparent; }
+  to { background-color: var(--el-overlay-bg-color, rgba(0, 0, 0, 0.5)); }
+}
+
 .el-overlay:has(.ai-chat-compact) {
   pointer-events: none !important;
-  background-color: transparent !important;
 }
 
 .el-overlay:has(.ai-chat-compact) .el-dialog {
