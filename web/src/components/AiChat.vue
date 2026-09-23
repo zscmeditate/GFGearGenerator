@@ -1058,6 +1058,7 @@ async function exportAssembly(m: AiChatMessage) {
 
 .el-overlay:has(.ai-chat-compact) {
   pointer-events: none !important;
+  background-color: transparent !important;
 }
 
 .el-overlay:has(.ai-chat-compact) .el-dialog {
