@@ -209,7 +209,10 @@ async function doExport(fmt: ExportFormat) {
               <img class="type-ico-img" :src="iconUrl(t.icon)" alt="" draggable="false" />
               <span
                 class="type-ico-mask"
-                :style="{ '--ico-url': `url(${iconUrl(t.icon)})` }"
+                :style="{
+                  WebkitMaskImage: `url(${iconUrl(t.icon)})`,
+                  maskImage: `url(${iconUrl(t.icon)})`
+                }"
               />
             </span>
             {{ t.name }}
@@ -548,8 +551,6 @@ async function doExport(fmt: ExportFormat) {
   position: absolute;
   inset: 0;
   background-color: currentColor;
-  -webkit-mask-image: var(--ico-url);
-  mask-image: var(--ico-url);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
