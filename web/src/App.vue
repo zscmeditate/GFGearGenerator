@@ -101,7 +101,7 @@ watch(
 
 /** 齿轮类型图标：resources/public/icons 下与 schema.icon 同名的 PNG */
 function iconUrl(icon: string): string {
-  return `/icons/${icon}.png`
+  return `${import.meta.env.BASE_URL}icons/${icon}.png`
 }
 
 function onTypeChange(t: GearType) {
